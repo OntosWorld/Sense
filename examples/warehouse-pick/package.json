@@ -1,0 +1,13 @@
+{
+  "name": "@sense/sdk-example-warehouse-pick",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MVP demo: warehouse.pick capability with state transitions",
+  "type": "module",
+  "scripts": {
+    "run": "tsx index.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0"
+  }
+}

@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality-gates:
+    name: Quality Gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build package
+        run: npm run build
+
+      - name: Verify dist output
+        run: |
+          test -f dist/index.js || { echo "dist/index.js missing"; exit 1; }
+          test -f dist/index.d.ts || { echo "dist/index.d.ts missing"; exit 1; }
+          test -f dist/index.js.map || { echo "dist/index.js.map missing"; exit 1; }
+
+  install-smoke-test:
+    name: Package Installation Smoke Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Create temp project
+        run: |
+          mkdir /tmp/sense-smoke-test
+          cd /tmp/sense-smoke-test
+          npm init -y
+          npm pkg set type="module"
+          # Install the SDK from the repo as a local package
+          npm install --save-dev file:${GITHUB_WORKSPACE}/Sense
+          # Write a smoke test
+          cat > smoke.mjs << 'EOF'
+          import { SenseMachine, defineCapability, equals, gte } from '@sense/sdk';
+
+          const machine = new SenseMachine({ machineRef: 'smoke-test' });
+          machine.observe('battery.levelPct', 80, new Date());
+          machine.observe('safety.estop', false, new Date());
+
+          machine.defineCapability(
+            defineCapability('smoke.capability', {
+              requires: [
+                equals('safety.estop', false),
+                gte('battery.levelPct', 20),
+              ],
+            }),
+          );
+
+          const result = machine.evaluate('smoke.capability');
+          if (!result) throw new Error('evaluate returned undefined');
+          if (result.status !== 'AVAILABLE') throw new Error('Expected AVAILABLE, got ' + result.status);
+          console.log('✅ smoke test passed —', result.status);
+          EOF
+
+      - name: Run smoke test
+        run: node /tmp/sense-smoke-test/smoke.mjs
