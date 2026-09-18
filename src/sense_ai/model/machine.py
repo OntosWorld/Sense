@@ -1,45 +1,15 @@
-"""
-ContextMachine — the main SDK entry point, per PRD §8.1 / §11.1.
-
-Usage (PRD §11.1)::
-
-    from Sense import ContextMachine, capability
-    from sense_ai.rules import equals, gte, fresh
-
-    machine = ContextMachine(
-        machine_ref="robot-001",
-        peaq_did="did:peaq:..."
-    )
-
-    machine.define_capability(
-        capability(
-            "warehouse.pick",
-            requires=[
-                equals("tool.gripper.available", True),
-                equals("safety.estop", False),
-                gte("battery.level_pct", 20),
-                fresh("localization.pose", max_age_ms=1000),
-            ],
-            degrade_when=[
-                gte("payload.utilization_pct", 90)
-            ]
-        )
-    )
-
-    machine.observe("battery.level_pct", 34, observed_at=now)
-    result = machine.evaluate("warehouse.pick")
-    snapshot = machine.snapshot()
-"""
+"""ContextMachine: local-first physical machine context and capability engine."""
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from sense_ai.errors import UnknownCapabilityError
 from sense_ai.model.capability import CapabilitySpec
-from sense_ai.model.observation import TelemetryObservation
+from sense_ai.model.observation import JSONValue, TelemetryObservation
 from sense_ai.model.result import (
     CapabilityResult,
     CapabilityStatus,
@@ -53,74 +23,40 @@ if TYPE_CHECKING:
     from sense_ai.events import EventBus
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Internal dict-backed observation store
-# ---------------------------------------------------------------------------
-
-
-class _DictStore(ObservationStore):
-    """In-memory ``ObservationStore`` backed by a dict of path → observation."""
-
-    __slots__ = ("_obs",)
-
-    def __init__(self) -> None:
-        self._obs: dict[str, TelemetryObservation] = {}
-
-    def set(self, obs: TelemetryObservation) -> None:
-        self._obs[obs.path] = obs
-
-    def get(self, path: str) -> TelemetryObservation | None:
-        return self._obs.get(path)
-
-    def all(self) -> dict[str, TelemetryObservation]:
-        return dict(self._obs)
-
-    def __repr__(self) -> str:
-        return f"_DictStore({len(self._obs)} observations)"
-
-
-# ---------------------------------------------------------------------------
-# Transition callback type
-# ---------------------------------------------------------------------------
+_UNSET = object()
 
 TransitionCallback = Callable[[ContextTransition], None]
 
 
-# ---------------------------------------------------------------------------
-# ContextMachine
-# ---------------------------------------------------------------------------
+class _DictStore(ObservationStore):
+    """In-memory current-state observation store."""
+
+    __slots__ = ("_observations",)
+
+    def __init__(self) -> None:
+        self._observations: dict[str, TelemetryObservation] = {}
+
+    def set(self, observation: TelemetryObservation) -> None:
+        self._observations[observation.path] = observation
+
+    def get(self, path: str) -> TelemetryObservation | None:
+        return self._observations.get(path)
+
+    def all(self) -> dict[str, TelemetryObservation]:
+        return dict(self._observations)
 
 
 class ContextMachine:
-    """
-    Physical AI / robotics machine context engine.
-
-    Ingest telemetry, define capability rules, evaluate current state, and
-    produce serializable :class:`ContextSnapshot` objects.
-
-    Parameters
-    ----------
-    machine_ref : str, optional
-        Developer-supplied machine identifier (e.g. ``"robot-001"``).
-    peaq_did : str, optional
-        peaq decentralized identifier bound to this machine (PRD §8.1).
-        Must be a valid ``did:peaq:...`` string if provided.
-    trace_id : str, optional
-        Distributed-trace identifier attached to all snapshots.
-    """
+    """Evaluate what a physical machine can do from its current telemetry."""
 
     __slots__ = (
         "_machine_ref",
         "_peaq_did",
         "_trace_id",
         "_store",
-        "_obs_count",
         "_capabilities",
         "_last_result",
         "_last_snapshot",
-        "_last_snapshot_obs_count",
         "_transitions",
         "_transition_handlers",
         "_event_bus",
@@ -137,42 +73,14 @@ class ContextMachine:
         self._machine_ref = machine_ref
         self._peaq_did = peaq_did
         self._trace_id = trace_id
-        self._store: _DictStore = _DictStore()
+        self._store = _DictStore()
         self._capabilities: dict[str, CapabilitySpec] = {}
         self._last_result: dict[str, CapabilityResult] = {}
         self._last_snapshot: ContextSnapshot | None = None
         self._transitions: list[ContextTransition] = []
         self._transition_handlers: dict[str, list[TransitionCallback]] = {}
-        self._event_bus: EventBus | None = event_bus
-        self._warnings: list[str] = []  # warnings emitted by Python capability fns
-        self._obs_count = 0
-        self._last_snapshot_obs_count: int | None = None
-
-    # -------------------------------------------------------------------------
-    # warn() — emit a warning from within a Python capability function
-    # -------------------------------------------------------------------------
-
-    def warn(self, message: str, *, path: str | None = None) -> None:
-        """
-        Emit a warning during capability evaluation.
-
-        Warnings are collected and attached to the ``CapabilityResult`` returned
-        by the enclosing ``evaluate()`` call.  They do not change the overall
-        status unless the capability function returns ``False``.
-
-        Parameters
-        ----------
-        message : str
-            Human-readable warning text.
-        path : str, optional
-            Observation path this warning relates to (for diagnostics).
-        """
-        entry = f"[{path}] {message}" if path else message
-        self._warnings.append(entry)
-
-    # -------------------------------------------------------------------------
-    # Public properties
-    # -------------------------------------------------------------------------
+        self._event_bus = event_bus
+        self._warnings: list[str] = []
 
     @property
     def machine_ref(self) -> str | None:
@@ -184,171 +92,87 @@ class ContextMachine:
 
     @property
     def observations(self) -> dict[str, TelemetryObservation]:
-        """Current observation store as a dict (read-only copy)."""
         return self._store.all()
 
     @property
     def capability_names(self) -> tuple[str, ...]:
-        """Names of all registered capabilities."""
-        return tuple(self._capabilities.keys())
+        return tuple(self._capabilities)
 
-    # -------------------------------------------------------------------------
-    # Telemetry ingestion (FR-1)
-    # -------------------------------------------------------------------------
+    @property
+    def last_snapshot(self) -> ContextSnapshot | None:
+        return self._last_snapshot
+
+    def warn(self, message: str, *, path: str | None = None) -> None:
+        """Attach a developer warning to the current Python capability evaluation."""
+        self._warnings.append(f"[{path}] {message}" if path else message)
 
     def observe(
         self,
-        path_or_obs: str | TelemetryObservation,
-        value: float | str | bool | None = None,
+        path_or_observation: str | TelemetryObservation,
+        value: JSONValue | object = _UNSET,
         *,
         observed_at: datetime | None = None,
+        received_at: datetime | None = None,
         source: str | None = None,
         ttl_ms: int | None = None,
     ) -> TelemetryObservation:
+        """Store one observation.
+
+        Reading state through this method is intentionally unsupported. Use
+        :meth:`get_observation` for reads so JSON null remains a valid telemetry
+        value.
         """
-        Ingest a telemetry observation (FR-1, PRD §11.1).
-
-        May be called with an existing :class:`TelemetryObservation` as the sole
-        positional argument, or with the ``(path, value)`` signature.
-
-        Parameters
-        ----------
-        path_or_obs : str | TelemetryObservation
-            Dot-notation key, e.g. ``"battery.level_pct"``, or an existing
-            observation object.
-        value : float | str | bool
-            The observed value (required when ``path_or_obs`` is a str).
-        observed_at : datetime, optional
-            When the value was observed.  Defaults to UTC now.
-        source : str, optional
-            Originating sensor or adapter identifier.
-        ttl_ms : int, optional
-            Source-provided validity hint in milliseconds.
-
-        Returns
-        -------
-        TelemetryObservation
-            The stored observation.
-
-        Raises
-        ------
-        ValueError
-            When ``path`` is empty.
-
-        Example
-        -------
-        >>> from datetime import datetime, timezone
-        >>> now = datetime.now(timezone.utc)
-        >>> machine.observe("battery.level_pct", 34, observed_at=now, ttl_ms=5000)
-        >>> machine.observe(some_telemetry_observation)
-        """
-        if isinstance(path_or_obs, TelemetryObservation):
-            obs = path_or_obs
-        elif value is None:
-            # Single positional arg: retrieve existing observation from store.
-            # Matches the (path: str) overload for type-checkers; at runtime the
-            # body disambiguates by checking whether a value was supplied.
-            return self._store.get(path_or_obs) or None  # type: ignore[return-value]
+        if isinstance(path_or_observation, TelemetryObservation):
+            if value is not _UNSET:
+                raise TypeError("value must not be supplied with TelemetryObservation")
+            observation = path_or_observation
         else:
-            path = path_or_obs
-            obs = TelemetryObservation(
-                path=path,
+            if value is _UNSET:
+                raise TypeError(
+                    "observe(path, value) requires an explicit value; "
+                    "use get_observation(path) to read state"
+                )
+            now = datetime.now(timezone.utc)
+            observation = TelemetryObservation(
+                path=path_or_observation,
                 value=value,
-                observed_at=observed_at or datetime.now(timezone.utc),
+                observed_at=observed_at or now,
+                received_at=received_at or now,
                 source=source,
                 ttl_ms=ttl_ms,
             )
-        self._store.set(obs)
-        self._obs_count += 1
-        return obs
 
-    # -------------------------------------------------------------------------
-    # Capability registration (FR-1 / §11.1)
-    # -------------------------------------------------------------------------
+        self._store.set(observation)
+        return observation
+
+    def get_observation(self, path: str) -> TelemetryObservation | None:
+        """Return the current observation at a path."""
+        return self._store.get(path)
 
     def define_capability(self, spec: CapabilitySpec) -> None:
-        """
-        Register a capability definition (FR-1, PRD §11.1).
-
-        Capabilities are additive; registering the same name twice replaces
-        the previous definition.
-
-        Parameters
-        ----------
-        spec : CapabilitySpec
-            The capability definition, typically created via :func:`capability()`.
-
-        Raises
-        ------
-        ValueError
-            If ``spec`` has no name.
-        """
+        """Register or replace a capability definition."""
         if not spec.name:
             raise ValueError("CapabilitySpec.name must be non-empty")
         self._capabilities[spec.name] = spec
-        logger.debug("Capability registered: %s", spec.name)
-
-    # -------------------------------------------------------------------------
-    # Evaluation (FR-5 / FR-6 / §9.4)
-    # -------------------------------------------------------------------------
 
     def evaluate(self, name: str) -> CapabilityResult:
-        """
-        Evaluate a registered capability against current observations (FR-5, FR-6).
-
-        Status logic (PRD §9.4):
-
-        - **UNAVAILABLE**: at least one blocking constraint (``requires``) failed.
-          Failures due to absent/stale data are still UNAVAILABLE for blocking
-          constraints.
-        - **UNKNOWN**: a blocking constraint's observation path is absent OR
-          a ``Fresh`` constraint is violated (stale).  This means we cannot
-          safely conclude the machine is unavailable — we simply don't know.
-        - **DEGRADED**: all blocking constraints pass (or resolve to UNKNOWN
-          without blocking), and at least one warning constraint
-          (``degrade_when``) failed.
-        - **AVAILABLE**: all blocking constraints pass, no warnings failed.
-
-        Parameters
-        ----------
-        name : str
-            Name of a previously registered capability.
-
-        Returns
-        -------
-        CapabilityResult
-            The evaluation result with status and per-constraint explanations.
-
-        Raises
-        ------
-        KeyError
-            If ``name`` has not been registered via :meth:`define_capability`.
-
-        Example
-        -------
-        >>> result = machine.evaluate("warehouse.pick")
-        >>> print(result.status)   # CapabilityStatus.AVAILABLE | DEGRADED | UNAVAILABLE | UNKNOWN
-        """
+        """Evaluate a capability against current observations."""
         if name not in self._capabilities:
             raise UnknownCapabilityError(
                 name,
-                available_ids=tuple(self._capabilities.keys()),
+                available_ids=tuple(self._capabilities),
             )
 
-        self._warnings.clear()  # reset per-evaluation
-
+        self._warnings.clear()
         spec = self._capabilities[name]
         blocking: list[ConstraintResult] = []
         warnings: list[ConstraintResult] = []
         unknown_paths: list[str] = []
 
-        # Evaluate blocking constraints (requires)
         for constraint in spec.requires:
             outcome = constraint.evaluate(self._store)
-
             if not outcome.passed:
                 if outcome.is_absent or outcome.is_stale:
-                    # Stale/missing data for a blocking constraint → UNKNOWN
                     unknown_paths.append(outcome.path)
                 blocking.append(
                     ConstraintResult(
@@ -364,37 +188,30 @@ class ContextMachine:
                     )
                 )
 
-        # Python capability function: False = blocking failure
         if spec.fn is not None:
             try:
-                fn_passed = spec.fn(self)
+                function_passed = bool(spec.fn(self))
             except Exception as exc:
+                logger.exception("Capability function %s raised", name)
                 self._warnings.append(str(exc))
-                fn_passed = False
-            if not fn_passed:
+                function_passed = False
+            if not function_passed:
                 blocking.append(
                     ConstraintResult(
                         code="PYTHON_FUNCTION",
                         severity="blocking",
                         path="",
-                        expected="Python capability function returned True",
-                        observed=f"Python capability function returned {fn_passed!r}",
-                        observed_age_ms=0,
+                        expected="capability function returns True",
+                        observed=function_passed,
                         constraint_name=spec.name,
-                        is_absent=False,
-                        is_stale=False,
                     )
                 )
 
-        # Evaluate warning constraints (degrade_when)
-        # A degrade_when constraint describes the BAD state; when it PASSES
-        # (the bad state is present) the capability is degraded.
+        # degrade_when rules describe the degraded condition. A passing rule
+        # means the degraded condition is active.
         for constraint in spec.degrade_when:
             outcome = constraint.evaluate(self._store)
-
             if outcome.passed:
-                if outcome.is_absent or outcome.is_stale:
-                    unknown_paths.append(outcome.path)
                 warnings.append(
                     ConstraintResult(
                         code=outcome.code,
@@ -409,95 +226,55 @@ class ContextMachine:
                     )
                 )
 
-        # Determine overall status
         if blocking:
-            # Some blocking constraints failed — check if any are UNKNOWN
-            unknown_blocking = any(r.is_absent or r.is_stale for r in blocking)
-            if unknown_blocking:
-                # At least one blocking constraint is UNKNOWN
-                status: CapabilityStatus = CapabilityStatus.UNKNOWN
-            else:
-                # All blocking failures are concrete → UNAVAILABLE
-                status = CapabilityStatus.UNAVAILABLE
+            status = (
+                CapabilityStatus.UNKNOWN
+                if any(item.is_absent or item.is_stale for item in blocking)
+                else CapabilityStatus.UNAVAILABLE
+            )
         elif warnings:
-            # All blocking constraints pass; warnings exist → DEGRADED
             status = CapabilityStatus.DEGRADED
         else:
             status = CapabilityStatus.AVAILABLE
-
-        # Merge Python-function warnings into the result
-        python_warnings = list(self._warnings)
 
         result = CapabilityResult(
             name=name,
             status=status,
             blocking=blocking,
             warnings=warnings,
-            unknown_paths=unknown_paths,
-            python_warnings=python_warnings,
+            unknown_paths=list(dict.fromkeys(unknown_paths)),
+            python_warnings=list(self._warnings),
         )
 
-        # Publish CapabilityEvaluatedEvent
         self._publish_capability_evaluated(name, result)
-
-        # Detect transition
         previous = self._last_result.get(name)
-        if previous is None or previous.status != status:
+        if previous is None or previous.status != result.status:
             transition = ContextTransition(
                 capability=name,
                 previous=previous.status if previous else None,
-                current=status,
+                current=result.status,
+                reasons=[reason.to_dict() for reason in result.reasons],
             )
             self._transitions.append(transition)
             self._fire_transition_handlers(transition)
             self._publish_transition_detected(transition)
 
         self._last_result[name] = result
-        logger.info("Capability %s → %s", name, result.status.value)
+        logger.info("Capability %s -> %s", name, result.status.value)
         return result
 
     def evaluate_all(self) -> dict[str, CapabilityResult]:
-        """
-        Evaluate all registered capabilities.
-
-        Returns
-        -------
-        dict[str, CapabilityResult]
-            Mapping of capability name → result.
-        """
+        """Evaluate all registered capabilities."""
         return {name: self.evaluate(name) for name in self._capabilities}
 
-    # -------------------------------------------------------------------------
-    # Snapshot (FR-3 / §9.2 / §11.2)
-    # -------------------------------------------------------------------------
-
     def snapshot(self) -> ContextSnapshot:
+        """Return a fresh point-in-time machine context snapshot.
+
+        Capabilities are always re-evaluated because freshness can expire even
+        when no new telemetry arrives.
         """
-        Produce a versioned point-in-time context snapshot (FR-3, PRD §11.2).
-
-        This re-evaluates all capabilities to ensure the snapshot reflects
-        current state.
-
-        Returns
-        -------
-        ContextSnapshot
-            Serializable snapshot of current machine context.
-
-        Example
-        -------
-        >>> payload = machine.snapshot().to_dict()
-        """
-        # Idempotent: return the same object if nothing changed since the last snapshot.
-        if (
-            self._last_snapshot is not None
-            and self._last_snapshot_obs_count == self._obs_count
-        ):
-            return self._last_snapshot
-
-        # Re-evaluate all capabilities
         results = self.evaluate_all()
-
-        snap = ContextSnapshot(
+        snapshot = ContextSnapshot(
             schema_version="1.0",
             machine_ref=self._machine_ref,
             peaq_did=self._peaq_did,
@@ -509,84 +286,48 @@ class ContextMachine:
             },
             trace_id=self._trace_id,
         )
-        self._last_snapshot = snap
-        self._last_snapshot_obs_count = self._obs_count
-        self._publish_snapshot_created(snap)
-        return snap
-
-    @property
-    def last_snapshot(self) -> ContextSnapshot | None:
-        """The most recently produced snapshot, or ``None``."""
-        return self._last_snapshot
-
-    # -------------------------------------------------------------------------
-    # Transition engine (FR-8)
-    # -------------------------------------------------------------------------
+        self._last_snapshot = snapshot
+        self._publish_snapshot_created(snapshot)
+        return snapshot
 
     def on_transition(
         self, capability: str
     ) -> Callable[[TransitionCallback], TransitionCallback]:
-        """
-        Decorator to register a callback for a capability-state transition (FR-8).
+        """Register a callback for state changes of one capability."""
 
-        Parameters
-        ----------
-        capability : str
-            Capability name to watch.
-
-        Returns
-        -------
-        Callable
-            Decorator that registers the callback.
-
-        Example
-        -------
-        >>> @machine.on_transition("warehouse.pick")
-        ... def handle(event: ContextTransition) -> None:
-        ...     print(f"Transition: {event.label}")
-
-        Note
-        ----
-        The decorator returns the callback unchanged so it can also be used
-        standalone without affecting its behaviour.
-        """
-
-        def decorator(cb: TransitionCallback) -> TransitionCallback:
-            if capability not in self._transition_handlers:
-                self._transition_handlers[capability] = []
-            self._transition_handlers[capability].append(cb)
-            return cb
+        def decorator(callback: TransitionCallback) -> TransitionCallback:
+            self._transition_handlers.setdefault(capability, []).append(callback)
+            return callback
 
         return decorator
 
-    def last_transition(self, capability: str) -> ContextTransition | None:
-        """
-        Return the most recent transition for a capability, or ``None``.
-        """
-        for t in reversed(self._transitions):
-            if t.capability == capability:
-                return t
+    def last_transition(
+        self, capability: str | None = None
+    ) -> ContextTransition | None:
+        """Return the latest transition, optionally filtered by capability."""
+        for transition in reversed(self._transitions):
+            if capability is None or transition.capability == capability:
+                return transition
         return None
 
     def transitions(self, capability: str | None = None) -> list[ContextTransition]:
-        """
-        Return recorded transitions, optionally filtered by capability name.
-        """
+        """Return recorded transitions, optionally filtered by capability."""
         if capability is None:
             return list(self._transitions)
-        return [t for t in self._transitions if t.capability == capability]
+        return [
+            transition
+            for transition in self._transitions
+            if transition.capability == capability
+        ]
 
     def _fire_transition_handlers(self, transition: ContextTransition) -> None:
-        handlers = self._transition_handlers.get(transition.capability, [])
-        for handler in handlers:
+        for handler in self._transition_handlers.get(transition.capability, []):
             try:
                 handler(transition)
             except Exception:
-                pass  # User callbacks must not raise
-
-    # -------------------------------------------------------------------------
-    # Event bus helpers
-    # -------------------------------------------------------------------------
+                logger.exception(
+                    "Transition handler failed for %s", transition.capability
+                )
 
     def _publish_capability_evaluated(
         self, name: str, result: CapabilityResult
@@ -599,7 +340,7 @@ class ContextMachine:
             CapabilityEvaluatedEvent(
                 machine_id=self._machine_ref or "",
                 capability_name=name,
-                result=result.to_dict(),
+                result=result,
             )
         )
 
@@ -615,7 +356,7 @@ class ContextMachine:
             )
         )
 
-    def _publish_snapshot_created(self, snap: ContextSnapshot) -> None:
+    def _publish_snapshot_created(self, snapshot: ContextSnapshot) -> None:
         if self._event_bus is None:
             return
         from sense_ai.events import SnapshotCreatedEvent
@@ -623,6 +364,6 @@ class ContextMachine:
         self._event_bus._publish(
             SnapshotCreatedEvent(
                 machine_id=self._machine_ref or "",
-                snapshot_dict=snap.to_dict(),
+                snapshot_dict=snapshot.to_dict(),
             )
         )
