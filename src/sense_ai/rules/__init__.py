@@ -29,8 +29,9 @@ from __future__ import annotations
 import logging
 import operator
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Sequence
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from sense_ai.model.observation import TelemetryObservation
