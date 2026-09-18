@@ -191,6 +191,21 @@ class Constraint(ABC):
             constraint_name=self._name,
         )
 
+    def _stale_outcome(self, store: ObservationStore) -> ConstraintOutcome:
+        """Return an unknown outcome when the observation exceeded its TTL."""
+        obs = store.get(self._path)
+        return ConstraintOutcome(
+            passed=False,
+            code=f"STALE_{self._path.upper().replace('.', '_')}",
+            path=self._path,
+            expected="<observation within ttl>",
+            observed=obs.value if obs is not None else None,
+            age_ms=obs.age_ms if obs is not None else None,
+            is_stale=True,
+            is_absent=False,
+            constraint_name=self._name,
+        )
+
     def blocking(self) -> Constraint:
         """Return a copy of this constraint with ``severity="blocking"``."""
         if self._severity == "blocking":
@@ -266,6 +281,8 @@ class Equals(Constraint):
         if obs is None:
             code = f"MISSING_{self._path.upper().replace('.', '_')}"
             return self._missing_outcome(store, code)
+        if not obs.is_available:
+            return self._stale_outcome(store)
 
         passed = obs.value == self._expected
         code = (
@@ -319,6 +336,8 @@ class _ComparisonOp(Constraint):
         if obs is None:
             code = f"MISSING_{self._path.upper().replace('.', '_')}"
             return self._missing_outcome(store, code)
+        if not obs.is_available:
+            return self._stale_outcome(store)
 
         # Only numeric values support comparison
         if not isinstance(obs.value, (int, float)):
@@ -415,6 +434,8 @@ class Fresh(Constraint):
         if obs is None:
             code = f"MISSING_{self._path.upper().replace('.', '_')}"
             return self._missing_outcome(store, code)
+        if not obs.is_available:
+            return self._stale_outcome(store)
 
         age_ms = obs.age_ms
         is_stale = age_ms > self._max_age_ms
@@ -473,6 +494,8 @@ class In(Constraint):
         if obs is None:
             code = f"MISSING_{self._path.upper().replace('.', '_')}"
             return self._missing_outcome(store, code)
+        if not obs.is_available:
+            return self._stale_outcome(store)
 
         passed = obs.value in self._values
         code = (
@@ -509,6 +532,8 @@ class Exists(Constraint):
         if obs is None:
             code = f"MISSING_{self._path.upper().replace('.', '_')}"
             return self._missing_outcome(store, code)
+        if not obs.is_available:
+            return self._stale_outcome(store)
 
         return self._base_outcome(
             store,
