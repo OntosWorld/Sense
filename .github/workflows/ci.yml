@@ -50,7 +50,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install -e ".[dev]"
-      - run: ruff check src/ packages/
+      - run: ruff check src/ packages/*/src/
 
   format:
     name: Format check
@@ -62,7 +62,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install -e ".[dev]"
-      - run: ruff format --check src/ packages/
+      - run: ruff format --check src/ packages/*/src/
 
   contract:
     name: Contract tests
