@@ -67,9 +67,7 @@ class TelemetryMapping:
             transform_values.extend(
                 item for item in raw_many if isinstance(item, (str, dict))
             )
-        transforms = tuple(
-            TransformSpec.from_value(item) for item in transform_values
-        )
+        transforms = tuple(TransformSpec.from_value(item) for item in transform_values)
         ttl = data.get("ttl_ms")
         if ttl is not None and (isinstance(ttl, bool) or not isinstance(ttl, int)):
             raise ValueError("mapping ttl_ms must be an integer")
@@ -196,9 +194,7 @@ class TelemetryNormalizer:
                     break
 
             if not is_json_value(value):
-                validation_errors.append(
-                    f"INVALID_JSON_VALUE: {type(value).__name__}"
-                )
+                validation_errors.append(f"INVALID_JSON_VALUE: {type(value).__name__}")
                 normalized_value: JSONValue = None
             else:
                 normalized_value = cast(JSONValue, value)
