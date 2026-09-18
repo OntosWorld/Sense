@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING, Callable
 
 from sense_ai.errors import UnknownCapabilityError
 from sense_ai.model.capability import CapabilitySpec
-from sense_ai.model.observation import TelemetryObservation
+from sense_ai.model.observation import JsonValue, TelemetryObservation
 from sense_ai.model.result import (
     CapabilityResult,
     CapabilityStatus,
@@ -53,6 +53,8 @@ if TYPE_CHECKING:
     from sense_ai.events import EventBus
 
 logger = logging.getLogger(__name__)
+
+_UNSET = object()
 
 
 # ---------------------------------------------------------------------------
@@ -199,12 +201,13 @@ class ContextMachine:
     def observe(
         self,
         path_or_obs: str | TelemetryObservation,
-        value: float | str | bool | None = None,
+        value: JsonValue | object = _UNSET,
         *,
         observed_at: datetime | None = None,
+        received_at: datetime | None = None,
         source: str | None = None,
         ttl_ms: int | None = None,
-    ) -> TelemetryObservation:
+    ) -> TelemetryObservation | None:
         """
         Ingest a telemetry observation (FR-1, PRD §11.1).
 
@@ -244,23 +247,25 @@ class ContextMachine:
         """
         if isinstance(path_or_obs, TelemetryObservation):
             obs = path_or_obs
-        elif value is None:
-            # Single positional arg: retrieve existing observation from store.
-            # Matches the (path: str) overload for type-checkers; at runtime the
-            # body disambiguates by checking whether a value was supplied.
-            return self._store.get(path_or_obs) or None  # type: ignore[return-value]
+        elif value is _UNSET:
+            return self.get_observation(path_or_obs)
         else:
-            path = path_or_obs
+            now = datetime.now(timezone.utc)
             obs = TelemetryObservation(
-                path=path,
-                value=value,
-                observed_at=observed_at or datetime.now(timezone.utc),
+                path=path_or_obs,
+                value=value,  # type: ignore[arg-type]
+                observed_at=observed_at or now,
+                received_at=received_at or now,
                 source=source,
                 ttl_ms=ttl_ms,
             )
         self._store.set(obs)
         self._obs_count += 1
         return obs
+
+    def get_observation(self, path: str) -> TelemetryObservation | None:
+        """Return the latest observation stored at path without mutating state."""
+        return self._store.get(path)
 
     # -------------------------------------------------------------------------
     # Capability registration (FR-1 / §11.1)
@@ -447,6 +452,7 @@ class ContextMachine:
                 capability=name,
                 previous=previous.status if previous else None,
                 current=status,
+                reasons=[*blocking, *warnings],
             )
             self._transitions.append(transition)
             self._fire_transition_handlers(transition)
@@ -487,14 +493,9 @@ class ContextMachine:
         -------
         >>> payload = machine.snapshot().to_dict()
         """
-        # Idempotent: return the same object if nothing changed since the last snapshot.
-        if (
-            self._last_snapshot is not None
-            and self._last_snapshot_obs_count == self._obs_count
-        ):
-            return self._last_snapshot
-
-        # Re-evaluate all capabilities
+        # Re-evaluate on every snapshot request. Freshness changes as wall-clock
+        # time passes even when no new telemetry arrives, so caching solely on
+        # observation count can return a stale AVAILABLE result.
         results = self.evaluate_all()
 
         snap = ContextSnapshot(
@@ -510,7 +511,6 @@ class ContextMachine:
             trace_id=self._trace_id,
         )
         self._last_snapshot = snap
-        self._last_snapshot_obs_count = self._obs_count
         self._publish_snapshot_created(snap)
         return snap
 
@@ -559,13 +559,13 @@ class ContextMachine:
 
         return decorator
 
-    def last_transition(self, capability: str) -> ContextTransition | None:
-        """
-        Return the most recent transition for a capability, or ``None``.
-        """
-        for t in reversed(self._transitions):
-            if t.capability == capability:
-                return t
+    def last_transition(
+        self, capability: str | None = None
+    ) -> ContextTransition | None:
+        """Return the most recent transition, optionally filtered by capability."""
+        for transition in reversed(self._transitions):
+            if capability is None or transition.capability == capability:
+                return transition
         return None
 
     def transitions(self, capability: str | None = None) -> list[ContextTransition]:
