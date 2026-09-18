@@ -234,7 +234,6 @@ class Constraint(ABC):
         """Return UNKNOWN evidence when validation or type checking failed."""
         observation = store.get(self._path)
         path_code = self._path.upper().replace(".", "_")
-        errors = observation.validation_errors if observation is not None else ()
         return ConstraintOutcome(
             passed=False,
             code=code or f"INVALID_{path_code}",
