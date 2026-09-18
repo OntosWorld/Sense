@@ -115,12 +115,11 @@ class ContextMachine:
         received_at: datetime | None = None,
         source: str | None = None,
         ttl_ms: int | None = None,
-    ) -> TelemetryObservation:
-        """Store one observation.
+    ) -> TelemetryObservation | None:
+        """Store one observation, or read one for backward compatibility.
 
-        Reading state through this method is intentionally unsupported. Use
-        :meth:`get_observation` for reads so JSON null remains a valid telemetry
-        value.
+        New code should use :meth:`get_observation` for reads. The sentinel
+        argument keeps an explicit JSON null distinct from an omitted value.
         """
         if isinstance(path_or_observation, TelemetryObservation):
             if value is not _UNSET:
@@ -128,10 +127,7 @@ class ContextMachine:
             observation = path_or_observation
         else:
             if value is _UNSET:
-                raise TypeError(
-                    "observe(path, value) requires an explicit value; "
-                    "use get_observation(path) to read state"
-                )
+                return self.get_observation(path_or_observation)
             now = datetime.now(timezone.utc)
             observation = TelemetryObservation(
                 path=path_or_observation,
@@ -207,8 +203,6 @@ class ContextMachine:
                     )
                 )
 
-        # degrade_when rules describe the degraded condition. A passing rule
-        # means the degraded condition is active.
         for constraint in spec.degrade_when:
             outcome = constraint.evaluate(self._store)
             if outcome.passed:
