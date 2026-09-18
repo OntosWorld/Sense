@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sense-peaq"
-version = "0.2.0"
+version = "0.3.0"
 description = "Official peaqOS integration for the Sense machine context SDK."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
 dependencies = [
-    "sense-ai>=0.2.0",
+    "sense-ai>=0.3.0",
     "peaq-os-sdk>=0.8.0",
 ]
 
