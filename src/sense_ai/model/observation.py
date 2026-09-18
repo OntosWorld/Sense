@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TypeAlias
+from typing import Any, TypeAlias
 
 JSONScalar: TypeAlias = None | bool | int | float | str
 JSONValue: TypeAlias = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
@@ -19,16 +19,30 @@ def _utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def is_json_value(value: Any) -> bool:
+    """Return True when value can be represented by the Sense JSON contract."""
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return True
+    if isinstance(value, list):
+        return all(is_json_value(item) for item in value)
+    if isinstance(value, dict):
+        return all(
+            isinstance(key, str) and is_json_value(item)
+            for key, item in value.items()
+        )
+    return False
+
+
 @dataclass(slots=True)
 class TelemetryObservation:
     """A single timestamped machine observation.
 
     observed_at records when the source measured the value.
-    received_at records when Sense received it. They are intentionally
-    separate because transport delay can matter for physical systems.
+    received_at records when Sense received it.
 
-    ttl_ms is source-provided validity metadata. Capability-specific freshness
-    requirements should still be declared explicitly with sense_ai.fresh().
+    validation_errors preserves invalid evidence instead of turning it into a
+    concrete machine failure. Capability rules treat invalid observations as
+    UNKNOWN evidence.
     """
 
     path: str
@@ -37,6 +51,7 @@ class TelemetryObservation:
     received_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     source: str | None = None
     ttl_ms: int | None = None
+    validation_errors: tuple[str, ...] = ()
     _age_ms: int | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -50,6 +65,7 @@ class TelemetryObservation:
             raise ValueError("ttl_ms must be >= 0 when provided")
         if self._age_ms is not None and self._age_ms < 0:
             raise ValueError("_age_ms must be >= 0 when provided")
+        self.validation_errors = tuple(str(item) for item in self.validation_errors)
 
     @property
     def age_ms(self) -> int:
@@ -67,14 +83,15 @@ class TelemetryObservation:
 
     @property
     def is_available(self) -> bool:
-        """Whether the observation remains valid under its declared TTL.
-
-        JSON null is still an explicit observation value. Missing evidence is
-        represented by the absence of an observation at the requested path.
-        """
+        """Whether the observation remains inside its declared TTL."""
         if self.ttl_ms is None:
             return True
         return self.age_ms <= self.ttl_ms
+
+    @property
+    def is_valid(self) -> bool:
+        """Whether validation/normalization accepted this evidence."""
+        return not self.validation_errors
 
     def to_dict(self) -> dict[str, JSONValue]:
         """Serialize to the language-neutral Sense context shape."""
@@ -88,10 +105,12 @@ class TelemetryObservation:
             out["source"] = self.source
         if self.ttl_ms is not None:
             out["ttl_ms"] = self.ttl_ms
+        if self.validation_errors:
+            out["validation_errors"] = list(self.validation_errors)
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, JSONValue]) -> TelemetryObservation:
+    def from_dict(cls, data: dict[str, JSONValue]) -> "TelemetryObservation":
         """Reconstruct an observation from its serialized representation."""
         raw_observed = data["observed_at"]
         if not isinstance(raw_observed, str):
@@ -118,6 +137,12 @@ class TelemetryObservation:
         if ttl is not None and (not isinstance(ttl, int) or isinstance(ttl, bool)):
             raise ValueError("ttl_ms must be an integer when provided")
 
+        raw_errors = data.get("validation_errors", [])
+        if not isinstance(raw_errors, list) or not all(
+            isinstance(item, str) for item in raw_errors
+        ):
+            raise ValueError("validation_errors must be an array of strings")
+
         return cls(
             path=path,
             value=data.get("value"),
@@ -125,4 +150,5 @@ class TelemetryObservation:
             received_at=received_at,
             source=source,
             ttl_ms=ttl,
+            validation_errors=tuple(raw_errors),
         )
