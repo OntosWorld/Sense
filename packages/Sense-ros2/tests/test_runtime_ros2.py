@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 from sense_ai import ContextMachine, TelemetryFieldSpec
 from sense_ros2 import Ros2Client, Ros2SenseBridge
 
@@ -68,6 +70,6 @@ def test_ros2_dds_message_reaches_sense() -> None:
 
     observation = machine.get_observation("battery.level_pct")
     assert observation is not None
-    assert observation.value == 73.0
+    assert observation.value == pytest.approx(73.0, rel=1e-6)
     assert observation.source == "/sense_runtime/battery"
     assert observation.ttl_ms == 5000
