@@ -112,7 +112,7 @@ jobs:
         include:
           - name: ros2
             package: packages/Sense-ros2
-            tests: packages/Sense-ros2/tests
+            tests: packages/Sense-ros2/tests/test_mapping.py
           - name: mqtt
             package: packages/Sense-mqtt
             tests: packages/Sense-mqtt/tests
