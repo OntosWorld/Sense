@@ -195,15 +195,14 @@ def main() -> None:
     result = machine.evaluate("inspection.ready")
 
     for outcome in result.blocking + result.warnings:
-        passed_icon = "✅" if outcome.passed else "❌"
-        stale_tag  = " [STALE]"  if outcome.is_stale  else ""
+        stale_tag = " [STALE]" if outcome.is_stale else ""
         absent_tag = " [ABSENT]" if outcome.is_absent else ""
         print(
-            f"  {passed_icon}  [{outcome.code}]"
+            f"  ❌  [{outcome.code}]"
             f"  path={outcome.path!r}"
             f"  expected={outcome.expected}"
             f"  observed={outcome.observed!r}"
-            f"  age_ms={outcome.age_ms}{stale_tag}{absent_tag}"
+            f"  age_ms={outcome.observed_age_ms}{stale_tag}{absent_tag}"
         )
 
 
