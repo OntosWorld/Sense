@@ -332,7 +332,9 @@ class _ComparisonOp(Constraint):
 
         passed = self._op(obs.value, self._threshold)
         op_name = self.__class__.__name__.upper()
-        code = f"{'PASS' if passed else 'FAIL'}_{op_name}_{self._path.upper().replace('.', '_')}"
+        outcome = "PASS" if passed else "FAIL"
+        path_code = self._path.upper().replace(".", "_")
+        code = f"{outcome}_{op_name}_{path_code}"
         return self._base_outcome(
             store,
             passed=passed,
@@ -420,7 +422,9 @@ class Fresh(Constraint):
         age_ms = obs.age_ms
         is_stale = age_ms > self._max_age_ms
         passed = not is_stale
-        code = f"{'PASS' if passed else 'FAIL'}_FRESH_{self._path.upper().replace('.', '_')}"
+        outcome = "PASS" if passed else "FAIL"
+        path_code = self._path.upper().replace(".", "_")
+        code = f"{outcome}_FRESH_{path_code}"
         return self._base_outcome(
             store,
             passed=passed,
