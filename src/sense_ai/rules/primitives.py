@@ -5,7 +5,7 @@ This file exists to satisfy any old import paths that referenced the
 module directly.
 """
 
-from .__init__ import (  # noqa: F401
+from . import (  # noqa: F401
     ALL,
     ANY,
     NONE_OF,
