@@ -38,7 +38,7 @@ NOW = datetime(2026, 9, 18, 10, 0, 0, tzinfo=timezone.utc)
 
 def _obs(
     path: str,
-    value: float | str | bool = 1.0,
+    value: object = 1.0,
     age_ms: int | None = 0,
     ttl_ms: int = 5000,
     source: str = "test",
@@ -68,6 +68,24 @@ def _machine(
 # ----------------------------------------------------------------------
 
 class TestTelemetryObservation:
+    def test_accepts_structured_json_value(self) -> None:
+        obs = TelemetryObservation(
+            path="localization.pose",
+            value={"x": 1.0, "y": 2.0, "frame": "map"},
+        )
+        assert obs.value["frame"] == "map"
+
+    def test_tracks_received_at_separately(self) -> None:
+        observed = datetime(2026, 9, 18, 10, 0, 0, tzinfo=timezone.utc)
+        received = observed + timedelta(milliseconds=250)
+        obs = TelemetryObservation(
+            path="sensor.value",
+            value=1,
+            observed_at=observed,
+            received_at=received,
+        )
+        assert obs.transport_delay_ms == 250
+
     def test_age_ms_computed_from_observed_at(self) -> None:
         # Pass _age_ms explicitly (60 000 ms) so the age_ms property returns
         # the exact value.  Using _age_ms because the public parameter is a
@@ -356,12 +374,20 @@ class TestSnapshot:
         assert m.last_snapshot is s2
         assert m.last_snapshot is not s1
 
-    def test_snapshot_is_idempotent_without_changes(self) -> None:
+    def test_snapshot_reevaluates_without_new_observations(self) -> None:
         m = _machine()
-        m.observe("x", 1.0)
+        m.define_capability(
+            capability("fresh.cap", requires=[Fresh("x", max_age_ms=1000)])
+        )
+        obs = TelemetryObservation(path="x", value=1.0, _age_ms=0, ttl_ms=1000)
+        m.observe(obs)
         s1 = m.snapshot()
+        assert s1.capabilities["fresh.cap"].status == CapabilityStatus.AVAILABLE
+
+        obs._age_ms = 5000
         s2 = m.snapshot()
-        assert s1 is s2  # Same object returned when nothing changed
+        assert s2 is not s1
+        assert s2.capabilities["fresh.cap"].status == CapabilityStatus.UNKNOWN
 
 
 # ----------------------------------------------------------------------
