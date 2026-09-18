@@ -155,9 +155,7 @@ class ContextMachine:
                 )
             )
             if existing_errors:
-                observation.validation_errors = tuple(
-                    dict.fromkeys(existing_errors)
-                )
+                observation.validation_errors = tuple(dict.fromkeys(existing_errors))
             spec = self._telemetry_schema.get(observation.path)
             if observation.ttl_ms is None and spec is not None:
                 observation.ttl_ms = spec.ttl_ms
@@ -170,9 +168,7 @@ class ContextMachine:
             new_errors: list[str] = []
 
             if not is_json_value(raw_value):
-                new_errors.append(
-                    f"INVALID_JSON_VALUE: {type(raw_value).__name__}"
-                )
+                new_errors.append(f"INVALID_JSON_VALUE: {type(raw_value).__name__}")
                 normalized_value: JSONValue = None
             else:
                 normalized_value = cast(JSONValue, raw_value)
@@ -186,8 +182,10 @@ class ContextMachine:
             )
 
             spec = self._telemetry_schema.get(path_or_observation)
-            effective_ttl = ttl_ms if ttl_ms is not None else (
-                spec.ttl_ms if spec is not None else None
+            effective_ttl = (
+                ttl_ms
+                if ttl_ms is not None
+                else (spec.ttl_ms if spec is not None else None)
             )
 
             observation = TelemetryObservation(
