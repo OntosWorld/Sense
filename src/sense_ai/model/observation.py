@@ -110,7 +110,7 @@ class TelemetryObservation:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, JSONValue]) -> "TelemetryObservation":
+    def from_dict(cls, data: dict[str, JSONValue]) -> TelemetryObservation:
         """Reconstruct an observation from its serialized representation."""
         raw_observed = data["observed_at"]
         if not isinstance(raw_observed, str):
@@ -150,5 +150,7 @@ class TelemetryObservation:
             received_at=received_at,
             source=source,
             ttl_ms=ttl,
-            validation_errors=tuple(raw_errors),
+            validation_errors=tuple(
+                str(item) for item in raw_errors if isinstance(item, str)
+            ),
         )
