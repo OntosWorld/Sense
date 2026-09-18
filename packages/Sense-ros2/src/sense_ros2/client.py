@@ -87,6 +87,10 @@ class Ros2Client:
             qos_profile,
         )
 
+    def destroy_subscription(self, subscription: Any) -> None:
+        """Destroy a subscription created by this node."""
+        self.node.destroy_subscription(subscription)
+
     def create_publisher(
         self,
         msg_type: type,
@@ -95,3 +99,15 @@ class Ros2Client:
     ) -> Any:
         """Create a ROS 2 publisher."""
         return self.node.create_publisher(msg_type, topic, qos_profile)
+
+    def spin_once(self, *, timeout_sec: float | None = None) -> None:
+        """Process ROS callbacks once."""
+        import rclpy
+
+        rclpy.spin_once(self.node, timeout_sec=timeout_sec)
+
+    def spin(self) -> None:
+        """Process ROS callbacks until shutdown."""
+        import rclpy
+
+        rclpy.spin(self.node)

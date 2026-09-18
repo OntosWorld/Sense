@@ -1,22 +1,18 @@
-# Example 04 — peaq Activity Events
+# Example 04 — peaq integration
 
-Demonstrates the current Sense → peaq integration boundary.
-
-Sense does not mutate DID documents with capability snapshots and does not implement its own Machine Markets listing API.
-
-Instead:
+This example demonstrates the supported Sense → peaq boundary.
 
 ```text
 Sense transition
     ↓
 PeaqEventPublisher
     ↓
-PeaqosClient.submit_event()
+official PeaqosClient.submit_event()
     ↓
 peaq Activity Event
 ```
 
-and Machine Markets operations delegate to `client.orchestration`.
+Machine Markets network operations delegate to `client.orchestration`.
 
 ## Install
 
@@ -25,32 +21,47 @@ pip install -e .
 pip install -e packages/Sense-peaq
 ```
 
-Run the example:
+Run the offline example:
 
 ```bash
 PYTHONPATH=src:packages/Sense-peaq/src \
 python examples/04_peaq/evaluate.py
 ```
 
-The example uses local fake clients so it can run without a funded wallet.
+It uses a fake client so it cannot spend gas.
 
-For a real deployment:
+## Provenance
+
+Default publication is self-reported/off-chain.
+
+For an on-chain-verifiable source:
 
 ```python
-from dotenv import load_dotenv
-from peaq_os_sdk import PeaqosClient
-from sense_peaq import PeaqEventPublisher
+from sense_peaq import EventProvenance
 
-load_dotenv()
-client = PeaqosClient.from_env()
-
-publisher = PeaqEventPublisher(client, machine_id=42)
+provenance = EventProvenance.onchain(
+    source_chain_id=8453,
+    source_tx_hash="0x...",
+)
 ```
 
-Use peaq's current setup documentation:
+Sense rejects hardware-signed trust claims until a real attested-hardware path is
+implemented.
 
-https://docs.peaq.xyz/peaqos/install
+## Live verification
 
-For Machine Markets/Scale, configure `PEAQOS_ORCHESTRATION_URL` and use request types from the official `peaq-os-sdk`.
+For an actual configured peaq transaction, use:
+
+```text
+tests/live/test_peaq_activity_event.py
+```
+
+See [live test instructions](../../tests/live/README.md).
+
+## Machine Markets
+
+Use `MachineMarketsAdapter` for official orchestration calls and
+`check_market_eligibility()` when the application needs to gate a market
+candidate using current Sense capability state.
 
 See [sense-peaq](../../packages/Sense-peaq/README.md).

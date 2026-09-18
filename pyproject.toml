@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sense-ai"
-version = "0.2.0"
+version = "0.3.0"
 description = "Local-first physical machine context and capability evaluation SDK."
 readme = "README.md"
 license = "Apache-2.0"
@@ -37,8 +37,16 @@ dev = [
     "types-jsonschema>=4.23",
     "pip-audit>=2.7",
 ]
-peaq = ["sense-peaq>=0.2.0"]
-ros2 = ["sense-ros2>=0.2.0"]
+peaq = ["sense-peaq>=0.3.0"]
+ros2 = ["sense-ros2>=0.3.0"]
+mqtt = ["sense-mqtt>=0.3.0"]
+http = ["sense-http>=0.3.0"]
+all = [
+    "sense-peaq>=0.3.0",
+    "sense-ros2>=0.3.0",
+    "sense-mqtt>=0.3.0",
+    "sense-http>=0.3.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/OntosWorld/Sense"

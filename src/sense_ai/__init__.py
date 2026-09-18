@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from sense_ai.adapters.replay import ReplayAdapter, ReplayFrame
+from sense_ai.config import SenseConfig
 from sense_ai.errors import (
     InvalidRuleError,
     MissingEvidenceError,
@@ -32,6 +34,7 @@ from sense_ai.model import (
 )
 from sense_ai.model.capability import capability
 from sense_ai.model.result import CapabilityResult, ConstraintResult
+from sense_ai.registry import CapabilityRegistry, capability_from_dict
 from sense_ai.rules import (
     ALL,
     ANY,
@@ -57,6 +60,19 @@ from sense_ai.rules import (
     lt,
     lte,
 )
+from sense_ai.telemetry import (
+    DEFAULT_TRANSFORMS,
+    NormalizationIssue,
+    NormalizationResult,
+    TelemetryFieldSpec,
+    TelemetryKind,
+    TelemetryMapping,
+    TelemetryNormalizer,
+    TelemetrySchema,
+    TelemetryValidationIssue,
+    TransformRegistry,
+    TransformSpec,
+)
 from sense_ai.trust import (
     EvidenceQualityDimension,
     EvidenceQualityReport,
@@ -76,9 +92,11 @@ __all__ = [
     "CapabilityResult",
     "CapabilitySpec",
     "CapabilityStatus",
+    "CapabilityRegistry",
     "Constraint",
     "ConstraintOutcome",
     "ConstraintResult",
+    "DEFAULT_TRANSFORMS",
     "ContextMachine",
     "ContextSnapshot",
     "ContextTransition",
@@ -97,20 +115,34 @@ __all__ = [
     "Lt",
     "Lte",
     "MissingEvidenceError",
+    "NormalizationIssue",
+    "NormalizationResult",
     "PeaqConfigurationError",
     "PeaqNetworkError",
     "RawEvent",
+    "ReplayAdapter",
+    "ReplayFrame",
     "SchemaValidationError",
+    "SenseConfig",
     "SenseError",
     "SerializationError",
     "SnapshotCreatedEvent",
+    "TelemetryFieldSpec",
+    "TelemetryKind",
+    "TelemetryMapping",
+    "TelemetryNormalizer",
     "TelemetryObservation",
+    "TelemetrySchema",
+    "TelemetryValidationIssue",
     "TransitionDetectedEvent",
     "TrustDimension",
+    "TransformRegistry",
+    "TransformSpec",
     "TrustReport",
     "UnknownCapabilityError",
     "UnsupportedPeaqFlowError",
     "capability",
+    "capability_from_dict",
     "compute_evidence_quality",
     "compute_trust_report",
     "equals",
@@ -123,4 +155,4 @@ __all__ = [
     "lte",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

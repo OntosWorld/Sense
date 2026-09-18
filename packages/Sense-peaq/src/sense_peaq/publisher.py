@@ -11,7 +11,11 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from sense_ai import ContextSnapshot, ContextTransition
-from sense_ai.errors import PeaqConfigurationError, PeaqNetworkError
+from sense_ai.errors import (
+    PeaqConfigurationError,
+    PeaqNetworkError,
+    UnsupportedPeaqFlowError,
+)
 
 
 class PeaqEventClient(Protocol):
@@ -34,6 +38,59 @@ class PeaqEventClient(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class EventProvenance:
+    """Evidence provenance attached to a peaq Activity Event."""
+
+    trust_level: int = 0
+    source_chain_id: int = 0
+    source_tx_hash: str | bytes | None = None
+
+    def __post_init__(self) -> None:
+        if self.trust_level == 0:
+            if self.source_chain_id != 0 or self.source_tx_hash is not None:
+                raise PeaqConfigurationError(
+                    "self-reported off-chain events must use source_chain_id=0 "
+                    "and source_tx_hash=None"
+                )
+            return
+
+        if self.trust_level == 1:
+            if self.source_chain_id not in (3338, 8453):
+                raise PeaqConfigurationError(
+                    "on-chain verifiable events require source_chain_id 3338 "
+                    "(peaq) or 8453 (Base)"
+                )
+            if self.source_tx_hash in (None, "", b""):
+                raise PeaqConfigurationError("trust level 1 requires source_tx_hash")
+            return
+
+        if self.trust_level == 2:
+            raise UnsupportedPeaqFlowError(
+                "Sense does not currently assert hardware-signed peaq events. "
+                "Use trust level 0, or level 1 with an on-chain source proof."
+            )
+
+        raise PeaqConfigurationError("trust_level must be 0, 1, or 2")
+
+    @classmethod
+    def self_reported(cls) -> EventProvenance:
+        return cls()
+
+    @classmethod
+    def onchain(
+        cls,
+        *,
+        source_chain_id: int,
+        source_tx_hash: str | bytes,
+    ) -> EventProvenance:
+        return cls(
+            trust_level=1,
+            source_chain_id=source_chain_id,
+            source_tx_hash=source_tx_hash,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class PublishResult:
     """Result returned after peaq accepts an Activity Event."""
 
@@ -46,41 +103,29 @@ class PublishResult:
 
 
 class PeaqEventPublisher:
-    """Publish selected Sense transitions as peaq Activity Events.
-
-    The client should be a configured peaq_os_sdk.PeaqosClient. Sense does not
-    create or own the client's signing key.
-
-    Local or off-chain machine context defaults to trust level 0 and source
-    chain 0. Higher trust levels must only be used when the event genuinely
-    satisfies peaq's documented provenance requirements.
-    """
+    """Publish selected Sense transitions as peaq Activity Events."""
 
     def __init__(
         self,
         client: PeaqEventClient,
         machine_id: int,
         *,
-        trust_level: int = 0,
-        source_chain_id: int = 0,
+        default_provenance: EventProvenance | None = None,
     ) -> None:
         if machine_id <= 0:
             raise PeaqConfigurationError("machine_id must be a positive integer")
-        if trust_level not in (0, 1, 2):
-            raise PeaqConfigurationError("trust_level must be 0, 1, or 2")
-        if source_chain_id not in (0, 3338, 8453):
-            raise PeaqConfigurationError(
-                "source_chain_id must be 0, 3338 (peaq), or 8453 (Base)"
-            )
 
         self._client = client
         self._machine_id = machine_id
-        self._trust_level = trust_level
-        self._source_chain_id = source_chain_id
+        self._default_provenance = default_provenance or EventProvenance.self_reported()
 
     @property
     def machine_id(self) -> int:
         return self._machine_id
+
+    @property
+    def default_provenance(self) -> EventProvenance:
+        return self._default_provenance
 
     def publish_transition(
         self,
@@ -90,6 +135,7 @@ class PeaqEventPublisher:
         value: int = 0,
         metadata: dict[str, Any] | None = None,
         include_observed_values: bool = False,
+        provenance: EventProvenance | None = None,
     ) -> PublishResult:
         """Submit one capability transition as a peaq Activity Event."""
         if value < 0:
@@ -102,6 +148,7 @@ class PeaqEventPublisher:
                 "peaq-os-sdk is required; install sense-peaq or peaq-os-sdk"
             ) from exc
 
+        selected_provenance = provenance or self._default_provenance
         raw_data = _encode_transition(
             transition,
             snapshot,
@@ -124,9 +171,9 @@ class PeaqEventPublisher:
                 currency="",
                 timestamp=max(1, int(transition.at.timestamp())),
                 raw_data=raw_data,
-                trust_level=self._trust_level,
-                source_chain_id=self._source_chain_id,
-                source_tx_hash=None,
+                trust_level=selected_provenance.trust_level,
+                source_chain_id=selected_provenance.source_chain_id,
+                source_tx_hash=selected_provenance.source_tx_hash,
                 metadata=event_metadata,
             )
         except Exception as exc:

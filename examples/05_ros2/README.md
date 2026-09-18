@@ -1,35 +1,49 @@
-# Example 05 — ROS 2 Bridge
+# Example 05 — ROS 2 bridge
 
-Demonstrates manually mapping ROS 2 messages into Sense observations.
+Sense 0.3.x supports declarative ROS 2 topic mapping.
 
-Run the repository mock example:
+The bridge uses the same core validation and normalization layer as MQTT, HTTP,
+replay, and OEM integrations.
+
+```text
+ROS 2 message
+    ↓
+field extraction
+    ↓
+configured transforms
+    ↓
+canonical Sense observation
+    ↓
+capability evaluation
+```
+
+## Install
+
+Install/source ROS 2 first, then:
 
 ```bash
 pip install -e .
 pip install -e packages/Sense-ros2
-
-PYTHONPATH=src:packages/Sense-ros2/src \
-python examples/05_ros2/evaluate.py
 ```
 
-Architecture:
+## Mapping
 
-```text
-ROS 2 topic
-    ↓
-callback
-    ↓
-TelemetryObservation / machine.observe()
-    ↓
-Sense capability evaluation
+A bridge config can define:
+
+```yaml
+topics:
+  - topic: /battery_state
+    message_type: sensor_msgs.msg.BatteryState
+    field: percentage
+    target: battery.level_pct
+    transform: ratio_to_percent
+    ttl_ms: 5000
 ```
 
-The ROS 2 adapter is early-stage. Declarative topic mapping and built-in message extractors are planned.
+Use `Ros2SenseBridge.from_yaml_file()` in a live ROS process.
 
-In a real robot environment, install ROS 2 using the official ROS instructions and source the environment so `rclpy` is available.
+The repository example remains runnable as a local development demonstration.
 
-https://docs.ros.org/
-
-Sense does not replace ROS 2 and does not replace peaq's ROS 2 machine runtime.
+Sense does not replace ROS 2 control/runtime behavior or peaq's own ROS runtime.
 
 See [sense-ros2](../../packages/Sense-ros2/README.md).

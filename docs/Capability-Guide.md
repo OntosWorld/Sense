@@ -1,8 +1,19 @@
 # Capability Guide
 
-Sense capabilities describe what a physical machine can **currently** do from the evidence available to the SDK.
+Sense evaluates named physical-machine capabilities from current canonical observations.
 
-## Define a capability
+## Status semantics
+
+| Status | Meaning |
+|---|---|
+| `AVAILABLE` | Required evidence is valid/fresh and mandatory constraints pass. |
+| `DEGRADED` | Mandatory constraints pass and a degradation condition is active. |
+| `UNAVAILABLE` | Valid current evidence proves a mandatory condition fails. |
+| `UNKNOWN` | Required evidence is missing, stale, invalid, or evaluation failed. |
+
+`UNKNOWN` is never silently promoted to `AVAILABLE`.
+
+## Define in Python
 
 ```python
 from sense_ai import capability, equals, fresh, gte
@@ -23,212 +34,204 @@ spec = capability(
 machine.define_capability(spec)
 ```
 
-### `requires`
-
-Mandatory conditions. If a known value fails one, the result is `UNAVAILABLE`.
-
-If required evidence is absent or stale, the result is `UNKNOWN`.
-
-### `degrade_when`
-
-Conditions that describe a degraded state. When one is active and all mandatory requirements still pass, the result is `DEGRADED`.
-
-## Status model
-
-| Status | Meaning |
-|---|---|
-| `AVAILABLE` | Required evidence exists and mandatory rules pass. |
-| `DEGRADED` | Mandatory rules pass but a degradation condition is active. |
-| `UNAVAILABLE` | A mandatory rule has a concrete failing value. |
-| `UNKNOWN` | Required evidence is missing or stale. |
-
-`UNKNOWN` is deliberately separate from `UNAVAILABLE`.
-
-## Rule primitives
+## Define declaratively
 
 ```python
-from sense_ai import (
-    ALL,
-    ANY,
-    NONE_OF,
-    NOT,
-    ONLY_ONE,
-    equals,
-    exists,
-    fresh,
-    gt,
-    gte,
-    in_,
-    lt,
-    lte,
+from sense_ai import CapabilityRegistry
+
+registry = CapabilityRegistry.from_dict(
+    {
+        "capabilities": [
+            {
+                "name": "warehouse.pick",
+                "version": "1.0.0",
+                "requires": [
+                    {
+                        "op": "gte",
+                        "path": "battery.level_pct",
+                        "value": 20,
+                    },
+                    {
+                        "op": "fresh",
+                        "path": "localization.pose",
+                        "max_age_ms": 1000,
+                    },
+                ],
+            }
+        ]
+    }
+)
+
+registry.install(machine)
+```
+
+The registry can hold multiple versions of the same capability and installs the latest version unless a version is selected explicitly.
+
+## Mandatory requirements
+
+A failed mandatory rule with valid evidence means `UNAVAILABLE`.
+
+A mandatory rule depending on missing, stale, or invalid evidence means `UNKNOWN`.
+
+Examples:
+
+```text
+battery = 10, requires >= 20
+→ UNAVAILABLE
+
+battery missing
+→ UNKNOWN
+
+battery TTL expired
+→ UNKNOWN
+
+battery = "full", numeric comparison required
+→ UNKNOWN
+```
+
+## Degradation conditions
+
+`degrade_when` describes a known operating condition where the capability remains usable but reduced.
+
+```python
+degrade_when=[
+    gte("payload.utilization_pct", 90),
+]
+```
+
+If payload utilization is 95% and all mandatory requirements pass, the status is `DEGRADED`.
+
+## Primitive rules
+
+- `equals(path, value)`
+- `gte(path, threshold)`
+- `gt(path, threshold)`
+- `lte(path, threshold)`
+- `lt(path, threshold)`
+- `in_(path, values)`
+- `exists(path)`
+- `fresh(path, max_age_ms)`
+
+## Composition
+
+```python
+from sense_ai import ALL, ANY, NONE_OF, NOT, ONLY_ONE
+```
+
+Composed rules retain their child outcomes.
+
+Example:
+
+```python
+ANY(
+    equals("camera.front.ready", True),
+    equals("camera.rear.ready", True),
 )
 ```
 
-Common examples:
+If front is `False` and rear is missing, the capability becomes `UNKNOWN` and `unknown_paths` contains:
 
-```python
-equals("safety.estop", False)
-gte("battery.level_pct", 20)
-lt("motor.temperature_c", 80)
-in_("operation.mode", ["auto", "assisted"])
-exists("tool.gripper.available")
-fresh("localization.pose", max_age_ms=1000)
+```text
+camera.rear.ready
 ```
 
-Logical composition:
-
-```python
-ALL(rule_a, rule_b)
-ANY(rule_a, rule_b)
-NOT(rule_a)
-NONE_OF(rule_a, rule_b)
-ONLY_ONE(rule_a, rule_b)
-```
+It does not incorrectly point to the first rule.
 
 ## Freshness
 
-Freshness is evaluated from the source observation time.
+An observation can carry source validity metadata:
 
 ```python
 machine.observe(
-    "localization.pose",
-    {"x": 1.0, "y": 2.0},
-    observed_at=source_timestamp,
-    received_at=receipt_timestamp,
-    ttl_ms=1500,
+    "battery.level_pct",
+    72,
+    ttl_ms=5000,
 )
 ```
 
-- `observed_at`: when the source measured the value.
-- `received_at`: when Sense received it.
-- `ttl_ms`: source-declared validity metadata.
-- `fresh(...)`: capability-specific maximum evidence age.
-
-Snapshots are re-evaluated every time, because evidence can become stale without a new message arriving.
-
-## Evaluation result
+A capability can impose a stricter freshness requirement:
 
 ```python
-result = machine.evaluate("warehouse.pick")
-
-print(result.status)
-print(result.unknown_paths)
-
-for reason in result.reasons:
-    print(reason.code)
-    print(reason.severity)
-    print(reason.path)
-    print(reason.expected)
-    print(reason.observed)
-    print(reason.observed_age_ms)
+fresh("localization.pose", max_age_ms=1000)
 ```
 
-Reasons are structured so applications can react without parsing human text.
+Both apply. Sense reevaluates snapshots because wall-clock time can invalidate evidence even when no new message arrives.
 
-## Structured telemetry
+## Validation
 
-Observation values are JSON-compatible and can be nested:
+Define canonical path contracts with `TelemetryFieldSpec` or `TelemetrySchema`.
 
 ```python
-machine.observe(
-    "localization.pose",
-    {
-        "position": {"x": 1.0, "y": 2.0, "z": 0.0},
-        "quality": {"covariance": [0.01, 0.02]},
-    },
+from sense_ai import TelemetryFieldSpec, TelemetrySchema
+
+schema = TelemetrySchema(strict=True)
+schema.define(
+    TelemetryFieldSpec(
+        "battery.level_pct",
+        kind="number",
+        minimum=0,
+        maximum=100,
+        ttl_ms=5000,
+    )
 )
 ```
 
-Rules operate on explicit observation paths. Do not bury values that need independent rules inside an opaque object unless the application deliberately treats that object as one piece of evidence.
+Invalid observations are retained with `validation_errors` so the reason for `UNKNOWN` remains inspectable.
 
-## Read current observations
+## Structured reasons
 
-Preferred:
+`CapabilityResult` exposes:
 
-```python
-observation = machine.get_observation("battery.level_pct")
+```text
+status
+blocking
+warnings
+unknown_paths
+evaluated_at
+python_warnings
 ```
 
-The older `machine.observe("battery.level_pct")` read form remains for compatibility.
+Each `ConstraintResult` contains:
+
+```text
+code
+severity
+path
+expected
+observed
+observed_age_ms
+is_absent
+is_stale
+is_invalid
+children
+```
+
+Use these fields for program logic; do not parse log strings.
+
+## Custom Python evaluators
+
+A clean `False` from a custom evaluator represents a concrete failure and produces `UNAVAILABLE`.
+
+An exception means the evaluator could not determine machine state and produces `UNKNOWN`.
 
 ## Transitions
 
+Sense emits a transition only when status changes.
+
 ```python
 @machine.on_transition("warehouse.pick")
-def changed(transition):
+def handle(transition):
     print(transition.previous)
     print(transition.current)
     print(transition.reasons)
 ```
 
-Sense emits a transition only when the capability status changes.
+Transition reasons preserve composed-rule children.
 
-This is the preferred unit for external event systems such as peaq. Do not publish every raw sensor update unless the application genuinely needs that behavior.
-
-## Snapshots
+## Privacy
 
 ```python
-snapshot = machine.snapshot()
-payload = snapshot.to_dict()
-json_text = snapshot.to_json(indent=2)
+public = machine.snapshot().publishable_view()
 ```
 
-The canonical language-neutral contract lives at:
-
-```text
-schemas/context-1.0.schema.json
-```
-
-Schema versioning is independent from the Python package version.
-
-## Data minimization
-
-Keep only selected local fields:
-
-```python
-subset = snapshot.redact(
-    keep_observations=["battery.*", "localization.*"],
-)
-```
-
-External publication defaults to no raw observations:
-
-```python
-public = snapshot.publishable_view()
-assert public.observations == {}
-```
-
-Explicitly allow raw evidence when needed:
-
-```python
-public = snapshot.publishable_view(
-    keep_observations=["battery.level_pct"],
-)
-```
-
-## Capability design guidance
-
-Prefer capabilities that describe meaningful machine work:
-
-```text
-warehouse.pick
-navigation.ready
-inspection.capture
-delivery.ready
-charging.accept
-```
-
-Avoid vague capabilities such as:
-
-```text
-healthy
-good
-trusted
-smart
-```
-
-A useful capability should make it clear what action is being evaluated and which physical evidence controls the answer.
-
-## Safety boundary
-
-Sense is an information and evaluation layer. A result such as `AVAILABLE` is **not** a functional-safety certification and must not directly bypass a machine's safety controller, interlocks, emergency-stop system, or OEM safety logic.
+Raw observations are excluded by default. Explicitly allow evidence only when needed.

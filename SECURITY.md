@@ -2,90 +2,117 @@
 
 ## Reporting a vulnerability
 
-Do not disclose security vulnerabilities through a public issue.
+Do not disclose vulnerabilities through a public issue.
 
-Use GitHub private vulnerability reporting when available, or contact the repository maintainers privately.
+Use GitHub private vulnerability reporting when available, or contact the
+maintainers privately.
 
-Include:
+Include the affected version/commit, reproduction, impact, and mitigation if
+known.
 
-- affected version/commit;
-- reproduction steps;
-- expected and observed behavior;
-- potential impact;
-- suggested mitigation if known.
+## Product boundary
 
-## Security boundaries
+Sense is a machine-context SDK, not a functional-safety system.
 
-Sense is a **context and capability evaluation SDK**. It is not a functional-safety system and must not replace hardware interlocks, emergency-stop systems, certified safety controllers, or OEM safety logic.
+An `AVAILABLE` result must never replace hardware interlocks, emergency-stop
+systems, certified safety controllers, OEM safety logic, or authorization.
 
-An `AVAILABLE` result is application context, not a safety certification.
+## Untrusted telemetry
+
+Treat all incoming machine data as untrusted.
+
+Sense 0.3.x can validate:
+
+- canonical path declarations;
+- JSON-compatible values;
+- expected type;
+- nullability;
+- numeric bounds;
+- enum values;
+- source TTL.
+
+Validation failure is preserved on the observation and mandatory invalid
+evidence becomes `UNKNOWN`.
+
+Domain-specific semantic validation still belongs in the deployment/OEM schema.
+
+## Normalization
+
+Transforms execute inside the local process.
+
+Custom transforms must be deterministic, bounded, and must not perform hidden
+network or actuation side effects.
+
+Do not use transforms to silently repair safety-critical evidence.
 
 ## Telemetry privacy
 
-Raw machine telemetry remains local by default.
+Raw observations remain local by default.
 
-`ContextSnapshot.publishable_view()` excludes raw observations unless the caller explicitly allowlists them.
+`publishable_view()` removes observations unless explicitly allowlisted.
 
-```python
-public = snapshot.publishable_view(
-    keep_observations=["battery.level_pct"],
-)
-```
+peaq transition reason values are also redacted unless
+`include_observed_values=True` is supplied.
 
-Review every allowlist before sending machine data outside the local process.
+Review every allowlist and metadata payload before external publication.
 
-## peaq keys and credentials
+## Transport adapters
 
-Sense does not own or log peaq private keys or seed phrases.
+### ROS 2
 
-The peaq adapter accepts a configured official `PeaqosClient`. Key custody and transaction signing remain with that client.
+Use DDS/ROS security, namespaces, QoS, and network controls appropriate to the
+deployment. Sense does not bypass ROS permissions.
 
-Never commit:
+### MQTT
 
-- `PEAQOS_PRIVATE_KEY`;
-- wallet seed phrases;
-- API keys;
-- production RPC credentials;
-- robot/operator secrets.
+Use TLS/authentication where required. Do not hard-code broker credentials in
+mapping files or repository source.
 
-Use environment variables or approved secret storage.
+### HTTP
 
-## peaq event provenance
+Prefer authenticated TLS endpoints on untrusted networks. Do not commit
+authorization headers or machine credentials.
 
-Sense defaults peaq Activity Events to trust level `0` for self-reported local context.
+Adapter network failures must not change local evidence into a false
+`AVAILABLE` result.
 
-Do not configure a higher peaq trust level unless the event actually meets peaq's documented provenance requirements.
+## peaq credentials
 
-## Untrusted input
+Sense receives a configured official `PeaqosClient`; it does not implement a
+wallet or key store.
 
-Treat machine telemetry as untrusted input.
+Never commit private keys, seed phrases, API keys, pairing tokens, or RPC
+credentials.
 
-Sense validates observation paths and basic metadata, but domain-specific ranges and semantic validation belong to the application/OEM adapter.
+## peaq provenance
 
-For example, Sense should not invent a universal valid temperature range for every machine.
+Default Activity Events are self-reported/off-chain.
 
-## ROS 2
+Trust level 1 requires a real source transaction and supported source chain.
 
-Apply ROS 2 security and network controls appropriate to the deployment.
+Sense currently rejects trust level 2 rather than asserting hardware-signed
+provenance without an attested hardware source.
 
-Sense's ROS adapter must not be used to bypass ROS 2 access controls, safety topics, or OEM control boundaries.
+## Live tests
 
-## Dependencies
+`tests/live/` can create real external transactions.
 
-CI runs:
+They are disabled by default and require explicit environment flags. Never
+enable live transaction tests in untrusted pull requests.
 
-- linting;
-- type checking;
-- tests;
-- package build/install smoke testing;
-- dependency auditing.
+## Dependencies and release
 
-A failed dependency audit should be investigated before release.
+CI includes tests, strict typing, lint/format checks, package builds, adapter
+contract/build checks, schema validation, and dependency auditing.
+
+Investigate failed audits before release.
 
 ## Logging
 
-Do not add private keys, seed phrases, authorization headers, sensitive raw telemetry, or credentials to logs.
+Do not log secrets, authorization headers, private telemetry, pairing tokens, or
+wallet material.
 
 ## Supported versions
 
-Sense is pre-1.0. Security fixes are applied to the current development line unless a release policy says otherwise.
+Sense is pre-1.0. Security fixes target the active release line unless a separate
+support policy is announced.

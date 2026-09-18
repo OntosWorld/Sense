@@ -49,6 +49,6 @@ for reason in result.reasons:
     )
 ```
 
-`UNKNOWN` means required evidence is missing/stale. It is not equivalent to `UNAVAILABLE`.
+`UNKNOWN` means required evidence is missing, stale, invalid, or could not be evaluated safely. It is not equivalent to `UNAVAILABLE`.
 
 See [Capability Guide](../../docs/Capability-Guide.md).

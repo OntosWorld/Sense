@@ -1,10 +1,11 @@
 # Contributing to Sense
 
-Sense is a local-first SDK for converting physical machine telemetry into current capability context.
+Sense is a local-first SDK for converting raw physical-machine telemetry into
+validated current capability context.
 
 Changes should preserve that boundary.
 
-## Development setup
+## Setup
 
 ```bash
 git clone https://github.com/OntosWorld/Sense.git
@@ -12,35 +13,45 @@ cd Sense
 
 python -m venv .venv
 source .venv/bin/activate
-
 pip install -e ".[dev]"
 ```
 
-For peaq work:
+Adapter development:
 
 ```bash
 pip install -e packages/Sense-peaq
+pip install -e packages/Sense-ros2
+pip install -e packages/Sense-mqtt
+pip install -e packages/Sense-http
 ```
 
-## Before changing an integration
+## Architecture
 
-Use the current official documentation.
+Core:
 
-For peaq:
+```text
+raw telemetry
+→ validation
+→ normalization
+→ canonical observations
+→ freshness
+→ capability evaluation
+→ reasons / transitions
+```
 
-https://docs.peaq.xyz/
+Network, ROS, OEM, and blockchain-specific code belongs behind adapter
+boundaries.
 
-For ROS 2:
+## External APIs
 
-https://docs.ros.org/
+Verify current upstream documentation before changing an integration.
 
-Do not invent an external API because a desired operation sounds plausible.
+- peaq: https://docs.peaq.xyz/
+- ROS 2: https://docs.ros.org/
 
-If upstream behavior is unavailable or unclear, keep the adapter boundary explicit and document the limitation.
+Do not invent methods, fields, market schemas, or provenance behavior.
 
 ## Quality checks
-
-Run:
 
 ```bash
 ruff check src/ packages/
@@ -54,25 +65,36 @@ pytest tests/integration/ -v
 pip install -e packages/Sense-peaq
 pytest tests/e2e/ -v
 
+pytest packages/Sense-ros2/tests -v
+pytest packages/Sense-mqtt/tests -v
+pytest packages/Sense-http/tests -v
+
 python -m build
 ```
 
-## Tests
+Live external tests are separate and opt-in.
 
-Add tests with behavior changes.
+## Test layers
 
-Use:
+- `tests/unit/`: deterministic core semantics;
+- `tests/contract/`: serialized/schema contracts;
+- `tests/integration/`: local component integration;
+- `tests/e2e/`: complete SDK/adapter flows using controlled boundaries;
+- `tests/live/`: explicit real-network verification;
+- adapter-local `tests/`: transport contracts.
 
-- `tests/unit/` for deterministic core behavior;
-- `tests/contract/` for schema/public serialization;
-- `tests/integration/` for multi-component local flows;
-- `tests/e2e/` for full adapter boundaries.
+## Invariants
 
-Network-dependent peaq tests must not make normal PR checks flaky.
+Do not weaken:
+
+- `UNKNOWN` is never `AVAILABLE`;
+- missing, stale, invalid mandatory evidence → `UNKNOWN`;
+- concrete valid failure → `UNAVAILABLE`;
+- raw telemetry remains local by default;
+- adapter failure does not corrupt local state;
+- Sense does not perform robot actuation.
 
 ## Conventional Commits
-
-Every commit must use Conventional Commits:
 
 ```text
 <type>(<scope>): <description>
@@ -81,61 +103,40 @@ Every commit must use Conventional Commits:
 Examples:
 
 ```text
-feat(rules): add numeric range constraint
-fix(core): re-evaluate snapshots after freshness expiry
-fix(peaq): publish transitions as activity events
-test(schema): cover structured telemetry values
-docs(ros2): clarify qos configuration
-ci(test): add package installation smoke test
+feat(telemetry): add unit normalization
+fix(rules): preserve invalid evidence as unknown
+feat(ros2): map battery state into canonical telemetry
+fix(peaq): require source proof for trust level one
+test(adapters): cover mqtt ingestion
+docs(readme): document raw telemetry pipeline
+ci(release): build first-party packages
 ```
 
-Common types:
-
-```text
-feat
-fix
-docs
-test
-refactor
-perf
-build
-ci
-chore
-```
-
-Use `!` and a `BREAKING CHANGE:` footer for breaking public API changes.
-
-Keep each commit focused on one logical purpose.
+Use `!` and a `BREAKING CHANGE:` footer for breaking public APIs.
 
 ## Pull requests
 
-A PR should explain:
+Describe:
 
-- what changed;
-- why;
-- public API impact;
-- tests added/updated;
-- external documentation used for integrations;
-- anything intentionally left unverified.
+- behavior change;
+- reason;
+- public contract impact;
+- tests;
+- upstream docs used for external integrations;
+- anything not live-verified.
 
-Do not claim a peaq operation was live-tested unless it was actually executed against a configured peaq environment.
+Never describe a mocked peaq test as a live transaction.
 
-## Product boundaries
+## Release changes
 
-Avoid adding unrelated platform features to the core.
+Keep first-party package versions aligned and update:
 
-Sense should remain focused on:
-
-```text
-telemetry
-→ physical context
-→ freshness
-→ current capabilities/constraints
-→ explainable transitions
-```
-
-Network, blockchain, ROS 2, OEM and simulator support should stay behind adapters where practical.
+- `CHANGELOG.md`;
+- compatibility documentation;
+- public READMEs;
+- examples affected by the API.
 
 ## Security
 
-Read [SECURITY.md](SECURITY.md) before changing telemetry publication, credentials, network integrations, or robot-facing code.
+Read [SECURITY.md](SECURITY.md) before changing transport credentials, telemetry
+publication, robot-facing behavior, or external transaction logic.

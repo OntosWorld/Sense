@@ -104,7 +104,24 @@ class ConstraintOutcome:
     age_ms: int | None = None
     is_stale: bool = False
     is_absent: bool = False
+    is_invalid: bool = False
     constraint_name: str | None = None
+    children: tuple[ConstraintOutcome, ...] = ()
+
+    @property
+    def unknown_paths(self) -> tuple[str, ...]:
+        """Leaf evidence paths that made this outcome indeterminate."""
+        paths: list[str] = []
+        if (self.is_absent or self.is_stale or self.is_invalid) and self.path:
+            paths.append(self.path)
+        for child in self.children:
+            paths.extend(child.unknown_paths)
+        return tuple(dict.fromkeys(paths))
+
+    @property
+    def is_unknown(self) -> bool:
+        """Whether this outcome depends on absent, stale, or invalid evidence."""
+        return bool(self.unknown_paths)
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +224,28 @@ class Constraint(ABC):
             constraint_name=self._name,
         )
 
+    def _invalid_outcome(
+        self,
+        store: ObservationStore,
+        *,
+        code: str | None = None,
+        expected: str = "<valid observation>",
+    ) -> ConstraintOutcome:
+        """Return UNKNOWN evidence when validation or type checking failed."""
+        observation = store.get(self._path)
+        path_code = self._path.upper().replace(".", "_")
+        return ConstraintOutcome(
+            passed=False,
+            code=code or f"INVALID_{path_code}",
+            path=self._path,
+            expected=expected,
+            observed=observation.value if observation is not None else None,
+            age_ms=observation.age_ms if observation is not None else None,
+            is_invalid=True,
+            constraint_name=self._name,
+            children=(),
+        )
+
     def blocking(self) -> Constraint:
         """Return a copy of this constraint with ``severity="blocking"``."""
         if self._severity == "blocking":
@@ -286,6 +325,9 @@ class Equals(Constraint):
         if not obs.is_available:
             return self._expired_outcome(store)
 
+        if not obs.is_valid:
+            return self._invalid_outcome(store)
+
         passed = obs.value == self._expected
         code = (
             f"{'PASS' if passed else 'FAIL'}_EQ_{self._path.upper().replace('.', '_')}"
@@ -342,12 +384,15 @@ class _ComparisonOp(Constraint):
         if not obs.is_available:
             return self._expired_outcome(store)
 
-        # Only numeric values support comparison
-        if not isinstance(obs.value, (int, float)):
-            return self._base_outcome(
+        if not obs.is_valid:
+            return self._invalid_outcome(store)
+
+        # Type mismatches are invalid evidence, not proof that the machine
+        # cannot perform the capability.
+        if isinstance(obs.value, bool) or not isinstance(obs.value, (int, float)):
+            return self._invalid_outcome(
                 store,
-                passed=False,
-                code=f"TYPE_ERROR_{self.__class__.__name__.upper()}",
+                code=f"INVALID_TYPE_{self._path.upper().replace('.', '_')}",
                 expected=f"numeric value {self._op.__name__} {self._threshold}",
             )
 
@@ -443,6 +488,9 @@ class Fresh(Constraint):
         if not obs.is_available:
             return self._expired_outcome(store)
 
+        if not obs.is_valid:
+            return self._invalid_outcome(store)
+
         age_ms = obs.age_ms
         is_stale = age_ms > self._max_age_ms
         passed = not is_stale
@@ -506,6 +554,9 @@ class In(Constraint):
         if not obs.is_available:
             return self._expired_outcome(store)
 
+        if not obs.is_valid:
+            return self._invalid_outcome(store)
+
         passed = obs.value in self._values
         code = (
             f"{'PASS' if passed else 'FAIL'}_IN_{self._path.upper().replace('.', '_')}"
@@ -544,6 +595,9 @@ class Exists(Constraint):
 
         if not obs.is_available:
             return self._expired_outcome(store)
+
+        if not obs.is_valid:
+            return self._invalid_outcome(store)
 
         return self._base_outcome(
             store,
@@ -597,7 +651,7 @@ class _Negated(Constraint):
 
     def evaluate(self, store: ObservationStore) -> ConstraintOutcome:
         inner = self._inner.evaluate(store)
-        unknown = inner.is_absent or inner.is_stale
+        unknown = inner.is_unknown
         return ConstraintOutcome(
             passed=False if unknown else not inner.passed,
             code=f"NOT_{inner.code}",
@@ -607,7 +661,9 @@ class _Negated(Constraint):
             age_ms=inner.age_ms,
             is_stale=inner.is_stale,
             is_absent=inner.is_absent,
+            is_invalid=inner.is_invalid,
             constraint_name=self._name,
+            children=(inner,),
         )
 
 
@@ -618,7 +674,7 @@ class _All(Constraint):
         # Use the first constraint's path as the composition path (may be overridden)
         first = constraints[0] if constraints else None
         super().__init__(
-            first.path if first else "",
+            "",
             name=None,
             severity=first.severity if first else "blocking",
         )
@@ -644,7 +700,9 @@ class _All(Constraint):
             age_ms=None,
             is_stale=any(outcome.is_stale for outcome in failed),
             is_absent=any(outcome.is_absent for outcome in failed),
+            is_invalid=any(outcome.is_invalid for outcome in failed),
             constraint_name=self._name,
+            children=tuple(outcomes),
         )
 
 
@@ -654,7 +712,7 @@ class _Any(Constraint):
     def __init__(self, constraints: list[Constraint]) -> None:
         first = constraints[0] if constraints else None
         super().__init__(
-            first.path if first else "",
+            "",
             name=None,
             severity=first.severity if first else "blocking",
         )
@@ -680,7 +738,9 @@ class _Any(Constraint):
             age_ms=None,
             is_stale=(not passed and any(outcome.is_stale for outcome in failed)),
             is_absent=(not passed and any(outcome.is_absent for outcome in failed)),
+            is_invalid=(not passed and any(outcome.is_invalid for outcome in failed)),
             constraint_name=self._name,
+            children=tuple(outcomes),
         )
 
 
@@ -690,7 +750,7 @@ class _NoneOf(Constraint):
     def __init__(self, constraints: list[Constraint]) -> None:
         first = constraints[0] if constraints else None
         super().__init__(
-            first.path if first else "",
+            "",
             name=None,
             severity=first.severity if first else "blocking",
         )
@@ -699,9 +759,7 @@ class _NoneOf(Constraint):
     def evaluate(self, store: ObservationStore) -> ConstraintOutcome:
         outcomes = [c.evaluate(store) for c in self._constraints]
         any_passed = any(outcome.passed for outcome in outcomes)
-        unknown = (not any_passed) and any(
-            outcome.is_absent or outcome.is_stale for outcome in outcomes
-        )
+        unknown = (not any_passed) and any(outcome.is_unknown for outcome in outcomes)
         passed = not any_passed and not unknown
         code = f"{'PASS' if passed else 'FAIL'}_NONE_OF"
         return ConstraintOutcome(
@@ -713,7 +771,9 @@ class _NoneOf(Constraint):
             age_ms=None,
             is_stale=unknown and any(outcome.is_stale for outcome in outcomes),
             is_absent=unknown and any(outcome.is_absent for outcome in outcomes),
+            is_invalid=unknown and any(outcome.is_invalid for outcome in outcomes),
             constraint_name=self._name,
+            children=tuple(outcomes),
         )
 
 
@@ -723,7 +783,7 @@ class _OnlyOne(Constraint):
     def __init__(self, constraints: list[Constraint]) -> None:
         first = constraints[0] if constraints else None
         super().__init__(
-            first.path if first else "",
+            "",
             name=None,
             severity=first.severity if first else "blocking",
         )
@@ -732,9 +792,7 @@ class _OnlyOne(Constraint):
     def evaluate(self, store: ObservationStore) -> ConstraintOutcome:
         outcomes = [c.evaluate(store) for c in self._constraints]
         passed_count = sum(1 for outcome in outcomes if outcome.passed)
-        unknown_outcomes = [
-            outcome for outcome in outcomes if outcome.is_absent or outcome.is_stale
-        ]
+        unknown_outcomes = [outcome for outcome in outcomes if outcome.is_unknown]
         definitely_failed = passed_count >= 2
         unknown = bool(unknown_outcomes) and not definitely_failed
         passed = passed_count == 1 and not unknown
@@ -749,7 +807,10 @@ class _OnlyOne(Constraint):
             is_stale=unknown and any(outcome.is_stale for outcome in unknown_outcomes),
             is_absent=unknown
             and any(outcome.is_absent for outcome in unknown_outcomes),
+            is_invalid=unknown
+            and any(outcome.is_invalid for outcome in unknown_outcomes),
             constraint_name=self._name,
+            children=tuple(outcomes),
         )
 
 

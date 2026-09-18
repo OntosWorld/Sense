@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from sense_ai.errors import UnknownCapabilityError
 from sense_ai.model.capability import CapabilitySpec
-from sense_ai.model.observation import JSONValue, TelemetryObservation
+from sense_ai.model.observation import (
+    JSONValue,
+    TelemetryObservation,
+    is_json_value,
+)
 from sense_ai.model.result import (
     CapabilityResult,
     CapabilityStatus,
@@ -18,6 +22,12 @@ from sense_ai.model.result import (
 )
 from sense_ai.model.snapshot import CapabilitySnapshot, ContextSnapshot
 from sense_ai.rules import ObservationStore
+from sense_ai.telemetry import (
+    NormalizationResult,
+    TelemetryFieldSpec,
+    TelemetryNormalizer,
+    TelemetrySchema,
+)
 
 if TYPE_CHECKING:
     from sense_ai.events import EventBus
@@ -54,6 +64,7 @@ class ContextMachine:
         "_peaq_did",
         "_trace_id",
         "_store",
+        "_telemetry_schema",
         "_capabilities",
         "_last_result",
         "_last_snapshot",
@@ -69,11 +80,13 @@ class ContextMachine:
         peaq_did: str | None = None,
         trace_id: str | None = None,
         event_bus: EventBus | None = None,
+        telemetry_schema: TelemetrySchema | None = None,
     ) -> None:
         self._machine_ref = machine_ref
         self._peaq_did = peaq_did
         self._trace_id = trace_id
         self._store = _DictStore()
+        self._telemetry_schema = telemetry_schema or TelemetrySchema()
         self._capabilities: dict[str, CapabilitySpec] = {}
         self._last_result: dict[str, CapabilityResult] = {}
         self._last_snapshot: ContextSnapshot | None = None
@@ -95,6 +108,10 @@ class ContextMachine:
         return self._store.all()
 
     @property
+    def telemetry_schema(self) -> TelemetrySchema:
+        return self._telemetry_schema
+
+    @property
     def capability_names(self) -> tuple[str, ...]:
         return tuple(self._capabilities)
 
@@ -105,6 +122,10 @@ class ContextMachine:
     def warn(self, message: str, *, path: str | None = None) -> None:
         """Attach a developer warning to the current Python capability evaluation."""
         self._warnings.append(f"[{path}] {message}" if path else message)
+
+    def define_observation(self, spec: TelemetryFieldSpec) -> None:
+        """Declare one canonical telemetry path and its validation contract."""
+        self._telemetry_schema.define(spec)
 
     def observe(
         self,
@@ -118,28 +139,87 @@ class ContextMachine:
     ) -> TelemetryObservation | None:
         """Store one observation, or read one for backward compatibility.
 
-        New code should use :meth:`get_observation` for reads. The sentinel
-        argument keeps an explicit JSON null distinct from an omitted value.
+        Invalid evidence is stored with validation_errors so capability
+        evaluation can return UNKNOWN instead of misclassifying it as a
+        physical failure.
         """
         if isinstance(path_or_observation, TelemetryObservation):
             if value is not _UNSET:
                 raise TypeError("value must not be supplied with TelemetryObservation")
             observation = path_or_observation
+            existing_errors = list(observation.validation_errors)
+            existing_errors.extend(
+                f"{issue.code}: {issue.message}"
+                for issue in self._telemetry_schema.validate(
+                    observation.path, observation.value
+                )
+            )
+            if existing_errors:
+                observation.validation_errors = tuple(dict.fromkeys(existing_errors))
+            spec = self._telemetry_schema.get(observation.path)
+            if observation.ttl_ms is None and spec is not None:
+                observation.ttl_ms = spec.ttl_ms
         else:
             if value is _UNSET:
                 return self.get_observation(path_or_observation)
+
             now = datetime.now(timezone.utc)
+            raw_value = value
+            new_errors: list[str] = []
+
+            if not is_json_value(raw_value):
+                new_errors.append(f"INVALID_JSON_VALUE: {type(raw_value).__name__}")
+                normalized_value: JSONValue = None
+            else:
+                normalized_value = cast(JSONValue, raw_value)
+
+            new_errors.extend(
+                f"{issue.code}: {issue.message}"
+                for issue in self._telemetry_schema.validate(
+                    path_or_observation,
+                    normalized_value,
+                )
+            )
+
+            spec = self._telemetry_schema.get(path_or_observation)
+            effective_ttl = (
+                ttl_ms
+                if ttl_ms is not None
+                else (spec.ttl_ms if spec is not None else None)
+            )
+
             observation = TelemetryObservation(
                 path=path_or_observation,
-                value=cast(JSONValue, value),
+                value=normalized_value,
                 observed_at=observed_at or now,
                 received_at=received_at or now,
                 source=source,
-                ttl_ms=ttl_ms,
+                ttl_ms=effective_ttl,
+                validation_errors=tuple(new_errors),
             )
 
         self._store.set(observation)
         return observation
+
+    def ingest(
+        self,
+        payload: Mapping[str, Any] | Any,
+        *,
+        normalizer: TelemetryNormalizer,
+        observed_at: datetime | None = None,
+        received_at: datetime | None = None,
+        source: str | None = None,
+    ) -> NormalizationResult:
+        """Normalize a raw payload and store every resulting observation."""
+        result = normalizer.normalize(
+            payload,
+            observed_at=observed_at,
+            received_at=received_at,
+            source=source,
+        )
+        for observation in result.observations:
+            self.observe(observation)
+        return result
 
     def get_observation(self, path: str) -> TelemetryObservation | None:
         """Return the current observation at a path."""
@@ -168,37 +248,44 @@ class ContextMachine:
         for constraint in spec.requires:
             outcome = constraint.evaluate(self._store)
             if not outcome.passed:
-                if outcome.is_absent or outcome.is_stale:
-                    unknown_paths.append(outcome.path)
+                unknown_paths.extend(outcome.unknown_paths)
                 blocking.append(
-                    ConstraintResult(
-                        code=outcome.code,
+                    ConstraintResult.from_outcome(
+                        outcome,
                         severity="blocking",
-                        path=outcome.path,
-                        expected=outcome.expected,
-                        observed=outcome.observed,
-                        observed_age_ms=outcome.age_ms,
-                        constraint_name=outcome.constraint_name,
-                        is_absent=outcome.is_absent,
-                        is_stale=outcome.is_stale,
                     )
                 )
 
         if spec.fn is not None:
+            evaluator_error: Exception | None = None
             try:
                 function_passed = bool(spec.fn(self))
             except Exception as exc:
                 logger.exception("Capability function %s raised", name)
                 self._warnings.append(str(exc))
                 function_passed = False
-            if not function_passed:
+                evaluator_error = exc
+
+            if evaluator_error is not None:
+                blocking.append(
+                    ConstraintResult(
+                        code="EVALUATOR_ERROR",
+                        severity="blocking",
+                        path="",
+                        expected="capability evaluator completes successfully",
+                        observed=None,
+                        constraint_name=spec.name,
+                        is_invalid=True,
+                    )
+                )
+            elif not function_passed:
                 blocking.append(
                     ConstraintResult(
                         code="PYTHON_FUNCTION",
                         severity="blocking",
                         path="",
                         expected="capability function returns True",
-                        observed=function_passed,
+                        observed=False,
                         constraint_name=spec.name,
                     )
                 )
@@ -207,23 +294,16 @@ class ContextMachine:
             outcome = constraint.evaluate(self._store)
             if outcome.passed:
                 warnings.append(
-                    ConstraintResult(
-                        code=outcome.code,
+                    ConstraintResult.from_outcome(
+                        outcome,
                         severity="warning",
-                        path=outcome.path,
-                        expected=outcome.expected,
-                        observed=outcome.observed,
-                        observed_age_ms=outcome.age_ms,
-                        constraint_name=outcome.constraint_name,
-                        is_absent=outcome.is_absent,
-                        is_stale=outcome.is_stale,
                     )
                 )
 
         if blocking:
             status = (
                 CapabilityStatus.UNKNOWN
-                if any(item.is_absent or item.is_stale for item in blocking)
+                if any(item.is_unknown for item in blocking)
                 else CapabilityStatus.UNAVAILABLE
             )
         elif warnings:
@@ -262,11 +342,7 @@ class ContextMachine:
         return {name: self.evaluate(name) for name in self._capabilities}
 
     def snapshot(self) -> ContextSnapshot:
-        """Return a fresh point-in-time machine context snapshot.
-
-        Capabilities are always re-evaluated because freshness can expire even
-        when no new telemetry arrives.
-        """
+        """Return a fresh point-in-time machine context snapshot."""
         results = self.evaluate_all()
         snapshot = ContextSnapshot(
             schema_version="1.0",

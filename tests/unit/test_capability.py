@@ -225,7 +225,9 @@ class TestComposition:
         store = {"a": _obs("a", 99), "b": _obs("b", 2)}
         outcome = ALL(Equals("a", 1), Equals("b", 2)).evaluate(store)
         assert outcome.passed is False
-        assert "a" in outcome.path
+        assert outcome.path == ""
+        assert outcome.children[0].path == "a"
+        assert outcome.children[0].passed is False
 
     def test_any_passes(self) -> None:
         store = {"a": _obs("a", 99), "b": _obs("b", 2)}

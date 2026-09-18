@@ -1,56 +1,63 @@
-"""Adapters: interface to external platforms (peaqOS, ROS2, etc.)."""
+"""Transport-neutral adapter contracts for feeding telemetry into Sense."""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
+from typing import Any, Protocol
 
-if TYPE_CHECKING:
-    from ..model.snapshot import ContextSnapshot
-
-# Re-export for public API surface
-__all__ = [
-    "AdapterError",
-    "BaseAdapter",
-    "PeaqAdapter",
-    "Ros2Adapter",
-]
+from sense_ai.telemetry import NormalizationResult, TelemetryNormalizer
 
 
 class AdapterError(Exception):
-    """Base exception for adapter errors."""
+    """Base exception for transport adapter failures."""
 
 
-class BaseAdapter(ABC):
-    """
-    Abstract base for platform adapters.
+class ObservationSink(Protocol):
+    """Minimal machine surface required by telemetry adapters."""
 
-    Subclass this to integrate Sense with a specific runtime platform
-    (peaqOS, ROS2, custom, etc.).
-    """
+    def observe(self, *args: Any, **kwargs: Any) -> Any: ...
+
+
+class TelemetryAdapter(ABC):
+    """Lifecycle contract implemented by external telemetry transports."""
 
     @abstractmethod
-    def get_current_situation(self) -> ContextSnapshot:
-        """
-        Retrieve the current Situation from the platform.
-
-        Raises
-        ------
-        AdapterError
-            If the platform cannot be reached or the response is invalid.
-        """
+    def start(self) -> None:
+        """Start receiving telemetry."""
         ...
 
     @abstractmethod
-    def submit_result(self, situation_id: str, result: object) -> None:
-        """
-        Submit an evaluation result back to the platform.
-
-        Parameters
-        ----------
-        situation_id : str
-            The situation identifier this result applies to.
-        result : object
-            The result payload to submit.
-        """
+    def stop(self) -> None:
+        """Stop receiving telemetry and release resources."""
         ...
+
+
+class MappedTelemetryAdapter:
+    """Reusable base for adapters that receive mapping-like payloads."""
+
+    def __init__(
+        self,
+        machine: ObservationSink,
+        normalizer: TelemetryNormalizer,
+    ) -> None:
+        self.machine = machine
+        self.normalizer = normalizer
+
+    def ingest_payload(
+        self,
+        payload: Mapping[str, Any] | Any,
+        **kwargs: Any,
+    ) -> NormalizationResult:
+        result = self.normalizer.normalize(payload, **kwargs)
+        for observation in result.observations:
+            self.machine.observe(observation)
+        return result
+
+
+__all__ = [
+    "AdapterError",
+    "MappedTelemetryAdapter",
+    "ObservationSink",
+    "TelemetryAdapter",
+]
