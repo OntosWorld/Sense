@@ -241,7 +241,7 @@ Install the adapter:
 pip install -e packages/Sense-peaq
 ```
 
-The adapter depends on `peaq-os-sdk>=0.4.0`.
+The adapter depends on `peaq-os-sdk>=0.8.0`.
 
 ### Publish a capability transition
 
