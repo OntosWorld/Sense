@@ -19,13 +19,22 @@
     },
     "machine": {
       "type": "object",
-      "required": ["ref", "peaq_did"],
+      "required": [
+        "ref",
+        "peaq_did"
+      ],
       "properties": {
         "ref": {
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "peaq_did": {
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "additionalProperties": false
@@ -35,7 +44,10 @@
       "format": "date-time"
     },
     "latest_observation_at": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "format": "date-time"
     },
     "state": {
@@ -45,101 +57,147 @@
     "observations": {
       "type": "array",
       "items": {
-        "type": "object",
-        "required": ["path", "value", "observed_at"],
-        "properties": {
-          "path": {
-            "type": "string",
-            "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*$"
-          },
-          "value": {},
-          "observed_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "received_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "source": {
-            "type": "string"
-          },
-          "ttl_ms": {
-            "type": "integer",
-            "minimum": 0
-          }
-        },
-        "additionalProperties": false
+        "$ref": "#/$defs/observation"
       }
     },
     "capabilities": {
       "type": "object",
       "additionalProperties": {
-        "type": "object",
-        "required": ["status", "reasons"],
-        "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "AVAILABLE",
-              "DEGRADED",
-              "UNAVAILABLE",
-              "UNKNOWN"
-            ]
-          },
-          "reasons": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": [
-                "code",
-                "severity",
-                "path",
-                "expected"
-              ],
-              "properties": {
-                "code": {
-                  "type": "string"
-                },
-                "severity": {
-                  "type": "string",
-                  "enum": ["blocking", "warning"]
-                },
-                "path": {
-                  "type": "string"
-                },
-                "expected": {
-                  "type": "string"
-                },
-                "observed": {},
-                "observed_age_ms": {
-                  "type": ["integer", "null"]
-                },
-                "constraint_name": {
-                  "type": ["string", "null"]
-                },
-                "is_absent": {
-                  "type": "boolean"
-                },
-                "is_stale": {
-                  "type": "boolean"
-                }
-              },
-              "additionalProperties": false
-            }
-          },
-          "unknown_paths": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "additionalProperties": false
+        "$ref": "#/$defs/capability"
       }
     },
     "trace_id": {
-      "type": ["string", "null"]
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "$defs": {
+    "observation": {
+      "type": "object",
+      "required": [
+        "path",
+        "value",
+        "observed_at"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*(\\\\.[a-zA-Z_][a-zA-Z0-9_]*)*$"
+        },
+        "value": {},
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "received_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "source": {
+          "type": "string"
+        },
+        "ttl_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "validation_errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "reason": {
+      "type": "object",
+      "required": [
+        "code",
+        "severity",
+        "path",
+        "expected"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "blocking",
+            "warning"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "expected": {
+          "type": "string"
+        },
+        "observed": {},
+        "observed_age_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "constraint_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "is_absent": {
+          "type": "boolean"
+        },
+        "is_stale": {
+          "type": "boolean"
+        },
+        "is_invalid": {
+          "type": "boolean"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reason"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "capability": {
+      "type": "object",
+      "required": [
+        "status",
+        "reasons"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "AVAILABLE",
+            "DEGRADED",
+            "UNAVAILABLE",
+            "UNKNOWN"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reason"
+          }
+        },
+        "unknown_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false
