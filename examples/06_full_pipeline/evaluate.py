@@ -46,7 +46,12 @@ def main() -> None:
         ),
     ]
 
-    ReplayAdapter(machine, config.normalizer, frames).run()
+    ReplayAdapter(
+        machine,
+        config.normalizer,
+        frames,
+        evaluate_after_frame=True,
+    ).run()
 
     result = machine.evaluate("warehouse.pick")
     print("current:", result.status.value)
