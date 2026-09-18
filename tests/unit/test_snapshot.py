@@ -14,7 +14,7 @@ from sense_ai.model.snapshot import CapabilitySnapshot, ContextSnapshot
 # Fixtures
 # ---------------------------------------------------------------------------
 
-def make_obs(path: str, value: float | str | bool) -> TelemetryObservation:
+def make_obs(path: str, value: object) -> TelemetryObservation:
     return TelemetryObservation(
         path=path,
         value=value,
@@ -27,7 +27,7 @@ def make_cap(name: str, status: CapabilityStatus = CapabilityStatus.AVAILABLE) -
 
 
 def make_snapshot(
-    obs_paths: dict[str, float | str | bool] | None = None,
+    obs_paths: dict[str, object] | None = None,
     cap_names: list[str] | None = None,
     **overrides,
 ) -> ContextSnapshot:
@@ -299,11 +299,10 @@ class TestPublishableView:
         result = snap.publishable_view()
         assert result.peaq_did is None
 
-    def test_no_default_allowlist(self):
-        # publishable_view() only strips peaq_did; no hardcoded default filters
+    def test_default_view_excludes_raw_observations(self):
         snap = make_snapshot()
         result = snap.publishable_view()
-        assert obs_keys(result) == {"sensor.battery", "sensor.temperature", "actuator.led"}
+        assert obs_keys(result) == set()
         assert cap_keys(result) == {"battery", "temperature", "led"}
 
     def test_additional_keep_observations(self):
@@ -358,9 +357,9 @@ class TestRedactEdgeCases:
 
     def test_publishable_view_then_redact_composes(self):
         snap = make_snapshot()
-        pub = snap.publishable_view()  # no hardcoded filters, all 3 obs
+        pub = snap.publishable_view()
         further = pub.redact(drop_observations=["sensor.temperature"])
-        assert obs_keys(further) == {"sensor.battery", "actuator.led"}
+        assert obs_keys(further) == set()
 
     def test_no_peaq_did_local_view_still_works(self):
         snap = make_snapshot()
