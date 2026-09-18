@@ -90,9 +90,7 @@ class ContextTransition:
         previous = self.previous.value if self.previous is not None else "NONE"
         return f"{previous} → {self.current.value}"
 
-    def to_dict(
-        self, *, include_observed_values: bool = True
-    ) -> dict[str, Any]:
+    def to_dict(self, *, include_observed_values: bool = True) -> dict[str, Any]:
         reasons: list[dict[str, Any]] = []
         for reason in self.reasons:
             serialized = dict(reason)
