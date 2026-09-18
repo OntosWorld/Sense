@@ -147,16 +147,16 @@ class ContextMachine:
             if value is not _UNSET:
                 raise TypeError("value must not be supplied with TelemetryObservation")
             observation = path_or_observation
-            validation_errors = list(observation.validation_errors)
-            validation_errors.extend(
+            existing_errors = list(observation.validation_errors)
+            existing_errors.extend(
                 f"{issue.code}: {issue.message}"
                 for issue in self._telemetry_schema.validate(
                     observation.path, observation.value
                 )
             )
-            if validation_errors:
+            if existing_errors:
                 observation.validation_errors = tuple(
-                    dict.fromkeys(validation_errors)
+                    dict.fromkeys(existing_errors)
                 )
             spec = self._telemetry_schema.get(observation.path)
             if observation.ttl_ms is None and spec is not None:
@@ -167,17 +167,17 @@ class ContextMachine:
 
             now = datetime.now(timezone.utc)
             raw_value = value
-            validation_errors: list[str] = []
+            new_errors: list[str] = []
 
             if not is_json_value(raw_value):
-                validation_errors.append(
+                new_errors.append(
                     f"INVALID_JSON_VALUE: {type(raw_value).__name__}"
                 )
                 normalized_value: JSONValue = None
             else:
                 normalized_value = cast(JSONValue, raw_value)
 
-            validation_errors.extend(
+            new_errors.extend(
                 f"{issue.code}: {issue.message}"
                 for issue in self._telemetry_schema.validate(
                     path_or_observation,
@@ -197,7 +197,7 @@ class ContextMachine:
                 received_at=received_at or now,
                 source=source,
                 ttl_ms=effective_ttl,
-                validation_errors=tuple(validation_errors),
+                validation_errors=tuple(new_errors),
             )
 
         self._store.set(observation)
