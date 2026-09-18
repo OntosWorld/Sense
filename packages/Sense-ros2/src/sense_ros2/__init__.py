@@ -1,8 +1,9 @@
-"""Sense-ros2: ROS 2 adapter for the Sense AI framework."""
+"""Sense ROS 2 telemetry adapter."""
 
 from __future__ import annotations
 
 from .client import Ros2Client
+from .mapping import Ros2SenseBridge, RosTopicMapping
 
-__all__ = ["Ros2Client"]
-__version__ = "1.0.0"
+__all__ = ["Ros2Client", "Ros2SenseBridge", "RosTopicMapping"]
+__version__ = "0.2.0"
