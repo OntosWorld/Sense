@@ -747,7 +747,8 @@ class _OnlyOne(Constraint):
             observed=[o.observed for o in outcomes],
             age_ms=None,
             is_stale=unknown and any(outcome.is_stale for outcome in unknown_outcomes),
-            is_absent=unknown and any(outcome.is_absent for outcome in unknown_outcomes),
+            is_absent=unknown
+            and any(outcome.is_absent for outcome in unknown_outcomes),
             constraint_name=self._name,
         )
 
