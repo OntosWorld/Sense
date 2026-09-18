@@ -1,254 +1,251 @@
 # Capability Guide
 
-A deep dive into the capability system: how to define capabilities, write effective rules, and interpret evaluation results.
+Sense turns current machine evidence into a deterministic capability result.
 
----
+## Define a capability
 
-## defineCapability
+```python
+from sense_ai import capability, equals, fresh, gte
 
-```ts
-import { defineCapability } from '@sense/sdk';
-
-machine.defineCapability(
-  defineCapability({
-    name: 'my.capability',
-    mandatoryRules: [...],   // required
-    degradationRules: [...], // optional
-  }),
-);
+machine.define_capability(
+    capability(
+        "warehouse.pick",
+        requires=[
+            equals("tool.gripper.available", True),
+            equals("safety.estop", False),
+            gte("battery.level_pct", 20),
+            fresh("localization.pose", max_age_ms=1000),
+        ],
+        degrade_when=[
+            gte("payload.utilization_pct", 90),
+        ],
+    )
+)
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `name` | `string` | ✅ | Unique identifier. Dot-separated namespacing is conventional (e.g., `warehouse.pick`). |
-| `mandatoryRules` | `Rule[]` | ✅ | All must pass → `AVAILABLE`. Any fails → `UNAVAILABLE`. |
-| `degradationRules` | `Rule[]` | ❌ | Optional reduced-capability mode. All pass → fully capable. Any fail → `DEGRADED`. |
+`requires` are blocking conditions.
 
-> **Degradation vs. Unavailability:** A `DEGRADED` capability is one where the machine can still perform its function, but at reduced performance or with constraints. `UNAVAILABLE` means the capability cannot be used at all until the underlying issue is resolved.
+`degrade_when` describes conditions that indicate reduced operating quality. If one of those conditions is active while all blocking requirements pass, the capability becomes `DEGRADED`.
 
----
-
-## Status meanings
+## Status model
 
 | Status | Meaning |
 |---|---|
-| `AVAILABLE` | All mandatory rules pass. Degradation rules may or may not pass (see below). |
-| `DEGRADED` | All mandatory rules pass, but at least one degradation rule fails. The capability works, but with reduced performance. |
-| `UNAVAILABLE` | At least one mandatory rule fails. The capability cannot be used. |
-| `UNKNOWN` | The machine has no observation for a path referenced by a rule. The result is indeterminate — you must supply the missing observation before a definitive status can be determined. |
+| `AVAILABLE` | All required evidence exists, remains valid/fresh, and blocking constraints pass. |
+| `DEGRADED` | Blocking constraints pass, but at least one degradation condition is active. |
+| `UNAVAILABLE` | At least one blocking constraint fails with concrete evidence. |
+| `UNKNOWN` | A required observation is missing or stale, so Sense cannot make a safe determination. |
 
-### How status is determined
+`UNKNOWN` is deliberately distinct from `UNAVAILABLE`.
 
-```
-if (any mandatory rule fails)      → UNAVAILABLE
-else if (any degradation rule fails) → DEGRADED
-else if (any rule has no evidence)  → UNKNOWN
-else                                 → AVAILABLE
-```
+For example:
 
----
+- battery = 8% and requirement is battery >= 20% → `UNAVAILABLE`
+- battery reading is missing → `UNKNOWN`
+- localization was valid but its evidence expired → `UNKNOWN`
 
-## Rule types reference
+## Rule primitives
 
-All rules live in `src/rules/index.ts` and are re-exported from the SDK root.
+Sense currently exposes:
 
-### Value comparison
-
-| Rule | Description |
+| Rule | Meaning |
 |---|---|
-| `equals(path, value)` | Observation value strictly equals `value` |
-| `notEquals(path, value)` | Observation value does not equal `value` |
-| `greaterThan(path, threshold)` | Numeric value > threshold |
-| `greaterThanOrEqual(path, threshold)` | Numeric value ≥ threshold |
-| `lessThan(path, threshold)` | Numeric value < threshold |
-| `lessThanOrEqual(path, threshold)` | Numeric value ≤ threshold |
+| `equals(path, value)` | Value must equal the expected value. |
+| `gte(path, threshold)` | Numeric value must be >= threshold. |
+| `gt(path, threshold)` | Numeric value must be > threshold. |
+| `lte(path, threshold)` | Numeric value must be <= threshold. |
+| `lt(path, threshold)` | Numeric value must be < threshold. |
+| `in_(path, values)` | Value must be in the supplied set. |
+| `exists(path)` | A currently valid observation must exist. |
+| `fresh(path, max_age_ms)` | Observation age must not exceed the capability-specific limit. |
 
-Shorthand aliases: `gt`, `gte`, `lt`, `lte`.
+Logical composition:
 
-> **Note:** These rules use JavaScript comparison semantics. For strict type checking (e.g., comparing `"42"` vs `42`), use `equals` with the exact expected type, or preprocess observations to normalize types before ingestion.
-
-### Existence
-
-| Rule | Description |
-|---|---|
-| `exists(path)` | An observation for this path exists (value may be any type, including `null` or `false`) |
-| `inSet(path, allowedValues)` | Observation value is one of the values in the array |
-
-### Freshness
-
-```ts
-fresh(path: string, options: { maxAgeMs: number })
+```python
+from sense_ai import ALL, ANY, NOT, NONE_OF, ONLY_ONE
 ```
 
-The observation must have been recorded within the last `maxAgeMs` milliseconds. If no observation exists, the rule evaluates to `UNKNOWN` (not `FAILED`).
+These compose deterministic constraints without requiring a model or network service.
 
-Use freshness rules to detect stale sensor data — e.g., a lidar scan from 10 seconds ago may no longer reflect reality:
+## Observation TTL and freshness
 
-```ts
-fresh('localization.pose', { maxAgeMs: 1000 }),   // must be within 1 second
-fresh('safety.zone.scan', { maxAgeMs: 5000 }),   // must be within 5 seconds
+An observation may carry a source-level TTL:
+
+```python
+machine.observe(
+    TelemetryObservation(
+        path="localization.pose",
+        value={"x": 1.0, "y": 2.0},
+        ttl_ms=2000,
+    )
+)
 ```
 
-### Logical composition
+Once that TTL expires, the observation is invalid for constraint evaluation.
 
-| Rule | Description |
-|---|---|
-| `all(...rules)` | All sub-rules pass (AND) |
-| `any(...rules)` | At least one sub-rule passes (OR) |
-| `not(rule)` | The sub-rule does not pass (NOT) |
+A capability can impose a stricter limit:
 
-Aliases: `ALL`, `ANY`, `NOT`.
-
-```ts
-import { all, any, not, equals, gte } from '@sense/sdk';
-
-// All of: estop clear, battery above threshold, AND (gripper OR vacuum present)
-all([
-  equals('safety.estop', false),
-  gte('battery.levelPct', 20),
-  any([equals('tool.gripper.available', true), equals('tool.vacuum.available', true)]),
-])
-
-// Battery must NOT be critically low
-not(lt('battery.levelPct', 5))
+```python
+fresh("localization.pose", max_age_ms=500)
 ```
 
----
+The effective behavior is conservative:
 
-## The evaluation result
+1. the observation must still be valid under its own TTL;
+2. the `fresh(...)` rule must also pass.
 
-`machine.evaluate(capabilityName)` returns a `CapabilityEvaluationResult`:
+A stale blocking observation produces `UNKNOWN`, not `AVAILABLE`.
 
-```ts
-interface CapabilityEvaluationResult {
-  name: string;                    // Capability name
-  status: CapabilityStatus;        // AVAILABLE | DEGRADED | UNAVAILABLE | UNKNOWN
-  evaluatedAt: string;             // ISO 8601 timestamp of evaluation
-  explanation: string;            // Human-readable summary
-  failedPaths: string[];          // Paths that caused UNAVAILABLE or DEGRADED
-  unknownPaths: string[];          // Paths with no observation → UNKNOWN
-  unknownReason?: UnknownReasonCode;
-  unavailableReason?: string;
-  degradedReason?: string;
-}
+## Structured evidence
+
+Each failed constraint becomes a `ConstraintResult` containing fields such as:
+
+```text
+code
+severity
+path
+expected
+observed
+observed_age_ms
+is_absent
+is_stale
 ```
 
-### `explanation`
+The overall result is a `CapabilityResult`:
 
-A human-readable string summarising the outcome. Example:
+```python
+result = machine.evaluate("warehouse.pick")
 
+result.name
+result.status
+result.blocking
+result.warnings
+result.unknown_paths
+result.evaluated_at
 ```
-All checks passed. Capable of warehouse.pick.
+
+Use the structured fields for application logic. Do not parse human-readable text to make decisions.
+
+## Reason codes
+
+Primitive rules produce deterministic machine-readable codes such as:
+
+```text
+MISSING_LOCALIZATION_POSE
+STALE_LOCALIZATION_POSE
+FAIL_GTE_BATTERY_LEVEL_PCT
+FAIL_EQ_SAFETY_ESTOP
 ```
 
-or:
+Applications may map these codes to operator-facing language.
 
+## Transitions
+
+Sense records a transition whenever a capability status changes:
+
+```python
+@machine.on_transition("warehouse.pick")
+def handle(transition):
+    print(transition.previous)
+    print(transition.current)
+    print(transition.reasons)
 ```
-Unavailable: battery.levelPct is 12, expected ≥ 20. Degraded: battery.levelPct is 12, expected ≥ 50.
+
+A transition carries the reasons that produced the new state.
+
+Typical transitions include:
+
+```text
+UNKNOWN → AVAILABLE
+AVAILABLE → DEGRADED
+DEGRADED → UNAVAILABLE
+UNAVAILABLE → AVAILABLE
+AVAILABLE → UNKNOWN
 ```
 
-Use `explanation` in logs, dashboards, and operator UIs without any parsing.
+Repeated evaluation with the same status does not create another transition.
 
-### `failedPaths`
+## Snapshots
 
-Paths whose rules evaluated to `FAILED`. These are the **actionable** paths — fix the sensor data or hardware condition at these paths to restore the capability.
-
-### `unknownPaths`
-
-Paths referenced by rules that have **no observation in machine state**. Unlike `failedPaths`, these indicate missing data, not incorrect data. The recommended response is to poll the relevant sensor or mark the sensor as offline.
-
-### Reason codes
-
-`unavailableReason` is a human-readable string (e.g., `"battery.levelPct is 12, expected ≥ 20"`).
-
-`unknownReason` is a structured code:
-
-| Code | Meaning |
-|---|---|
-| `MISSING_OBSERVATION` | No observation exists for the referenced path |
-| `STALE_OBSERVATION` | The observation exists but failed a `fresh` rule |
-
----
-
-## Designing capabilities
-
-### Naming conventions
-
-Use dot-separated hierarchical names:
-
+```python
+snapshot = machine.snapshot()
 ```
+
+A snapshot reevaluates capabilities before serialization. Sense intentionally does not return a cached capability result solely because no new observation arrived: time itself can make telemetry stale.
+
+The serialized snapshot includes:
+
+- schema version;
+- machine reference;
+- optional peaq DID;
+- generation timestamp;
+- latest observation timestamp;
+- normalized state;
+- observations;
+- capability status;
+- blocking reasons;
+- warnings;
+- unknown paths.
+
+## Privacy
+
+Internal view:
+
+```python
+local = snapshot.local_view()
+```
+
+External view:
+
+```python
+public = snapshot.publishable_view()
+```
+
+`publishable_view()` removes raw observations by default. Allow them explicitly only when required:
+
+```python
+public = snapshot.publishable_view(
+    keep_observations=["battery.*"],
+)
+```
+
+## Capability design guidance
+
+Prefer small decision-oriented capabilities:
+
+```text
 warehouse.pick
 warehouse.place
-outdoor.nav
-indoor.nav
-manipulator.lift
+navigation.indoor
+navigation.outdoor
+charging.accept
 ```
 
-This makes filtering by subsystem easy and keeps transition event names human-readable.
+Avoid one giant capability that mixes unrelated subsystems.
 
-### Granularity
+A blocking rule should answer:
 
-Each capability should represent one **decision unit** — the smallest independently-evaluable capability that a downstream system makes a decision on. Don't combine unrelated concerns into one capability; prefer several granular capabilities that can be evaluated together:
+> If this condition fails with valid evidence, can the machine still perform the capability?
 
-```ts
-// Prefer this:
-machine.evaluate('warehouse.pick');
-machine.evaluate('warehouse.place');
-machine.evaluate('warehouse.nav');
+If the answer is no, put it in `requires`.
 
-// Over this:
-machine.evaluate('warehouse.full-mission'); // Too coarse — hard to act on partial failures
-```
+A degradation condition should represent a known reduced-quality state that still permits operation.
 
-### Mandatory vs. degradation rules
+## UNKNOWN handling
 
-Ask: **"Can the machine safely perform this task even if this rule fails?"**
+Applications should treat `UNKNOWN` as insufficient evidence, not as success.
 
-- If **no** → make it a `mandatoryRule`. A broken gripper absolutely prevents picking.
-- If **yes, but degraded** → make it a `degradationRule`. Low battery still allows picking, just with reduced autonomy range.
-- If **ambiguous** → start conservative (mandatory), relax to degradation once you've validated the degraded behavior in testing.
+Common responses are:
 
-### Handling UNKNOWN
+- request or await fresh telemetry;
+- keep the machine out of task selection until evidence returns;
+- surface the missing/stale paths to an operator;
+- publish a meaningful transition event if external systems need to know the capability became indeterminate.
 
-`UNKNOWN` status means the machine lacks the evidence to make a determination. The SDK deliberately avoids guessing. Your integration should:
+## peaq integration
 
-1. Surface `UNKNOWN` as a **pending** or **awaiting-sensor** state in the UI.
-2. Log `unknownPaths` so operators can identify which sensors are silent.
-3. Use `onTransition` to detect when a previously `UNKNOWN` capability becomes `AVAILABLE` (sensor came online), which often signals the machine is now ready to accept work.
+Sense capability state is runtime physical context. peaq remains responsible for machine identity, Activity Events, orchestration, services, markets, and economic infrastructure.
 
----
+A Sense transition can be published through `PeaqContextPublisher`, while Machine Markets calls delegate to the official `PeaqosClient.orchestration` namespace.
 
-## Observability integration
-
-### Transition callbacks
-
-```ts
-const unsubscribe = machine.onTransition('warehouse.pick', (t) => {
-  // t.capability       — 'warehouse.pick'
-  // t.previousStatus   — Status before this evaluation
-  // t.currentStatus    — Status after this evaluation
-  // t.timestamp        — ISO 8601
-  // t.explanation      — Human-readable reason
-  // t.changedPaths     — Paths whose values differ from prior evaluation
-  // t.reasonCode       — Structured reason (optional)
-});
-```
-
-Use callbacks to:
-- Emit metrics to Prometheus / Datadog on status changes
-- Publish events to peaq on `AVAILABLE → UNAVAILABLE` transitions
-- Log operator-facing alerts
-
-### Snapshot integration
-
-Combine `getSnapshot()` with the evaluation result to build a complete audit record:
-
-```ts
-const result = machine.evaluate('warehouse.pick');
-const snapshot = machine.getSnapshot(['safety.internal.status']); // redact internal paths
-
-// Store result + snapshot for post-hoc debugging
-await db.save({ capability: result.name, status: result.status, snapshot, at: new Date() });
-```
-
-See [Quickstart](./Quickstart.md) for full snapshot options including `allowPaths` and `metadata`.
+Sense does not create an alternative marketplace schema.
