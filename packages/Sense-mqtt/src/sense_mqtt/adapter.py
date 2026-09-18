@@ -54,7 +54,7 @@ class MqttSenseAdapter(TelemetryAdapter):
         data: dict[str, Any],
         *,
         client: Any = None,
-    ) -> "MqttSenseAdapter":
+    ) -> MqttSenseAdapter:
         raw_topics = data.get("topics", [])
         if not isinstance(raw_topics, list):
             raise ValueError("mqtt topics must be a list")
