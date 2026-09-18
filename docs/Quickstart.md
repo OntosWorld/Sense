@@ -1,154 +1,200 @@
-# Sense SDK — Quickstart
+# Sense Quickstart
 
-Get from a raw telemetry stream to a publishable capability snapshot in under 10 minutes.
-
----
+This guide takes you from raw telemetry to an explainable machine capability result.
 
 ## 1. Install
 
-```sh
-npm install @sense/sdk
+From the repository:
+
+```bash
+git clone https://github.com/OntosWorld/Sense.git
+cd Sense
+pip install -e ".[dev]"
 ```
 
-Requires Node.js ≥ 20. ESM-only.
+## 2. Create a machine
 
----
+```python
+from sense_ai import ContextMachine
 
-## 2. Create your first machine
-
-```ts
-import { SenseMachine } from '@sense/sdk';
-
-const machine = new SenseMachine({ machineRef: 'robot-001' });
+machine = ContextMachine(machine_ref="robot-001")
 ```
 
-`machineRef` is your developer-assigned identifier — it appears in snapshots and transition events.
+A `ContextMachine` keeps the latest observation for each path and evaluates developer-defined capabilities locally.
 
----
+## 3. Define a capability
 
-## 3. Ingest telemetry observations
+```python
+from sense_ai import capability, equals, fresh, gte
 
-Every value flowing into Sense is an **observation**: a `(path, value, timestamp)` triple.
-
-```ts
-machine.observe({
-  path: 'battery.levelPct',
-  value: 78,
-  observedAt: new Date(),          // Date or ISO 8601 string
-});
+machine.define_capability(
+    capability(
+        "warehouse.pick",
+        requires=[
+            equals("tool.gripper.available", True),
+            equals("safety.estop", False),
+            gte("battery.level_pct", 20),
+            fresh("localization.pose", max_age_ms=1000),
+        ],
+        degrade_when=[
+            gte("payload.utilization_pct", 90),
+        ],
+    )
+)
 ```
 
-You can also push multiple observations at once:
+## 4. Ingest telemetry
 
-```ts
-machine.observeMany([
-  { path: 'safety.estop',        value: false, observedAt: new Date() },
-  { path: 'tool.gripper.available', value: true,  observedAt: new Date() },
-  { path: 'localization.pose',   value: { x: 1.2, y: 0.4 }, observedAt: new Date() },
-]);
+```python
+from datetime import datetime, timezone
+from sense_ai import TelemetryObservation
+
+now = datetime.now(timezone.utc)
+
+machine.observe("tool.gripper.available", True)
+machine.observe("safety.estop", False)
+machine.observe("battery.level_pct", 78)
+machine.observe("payload.utilization_pct", 40)
+
+machine.observe(
+    TelemetryObservation(
+        path="localization.pose",
+        value={"x": 1.2, "y": 0.4, "frame": "map"},
+        observed_at=now,
+        received_at=now,
+        source="localization",
+        ttl_ms=1000,
+    )
+)
 ```
 
-Observations are stored in memory and merged by `path`. A newer observation for the same path replaces the older one.
+Observation values may be any JSON-compatible scalar, list, or object.
 
----
-
-## 4. Define a capability
-
-A **capability** is a named set of rules that evaluates to a status:
-
-```ts
-import { defineCapability, equals, gte, fresh } from '@sense/sdk';
-
-machine.defineCapability(
-  defineCapability({
-    name: 'warehouse.pick',
-    mandatoryRules: [
-      equals('tool.gripper.available', true),
-      equals('safety.estop', false),
-      gte('battery.levelPct', 20),
-      fresh('localization.pose', { maxAgeMs: 1000 }),
-    ],
-    degradationRules: [gte('battery.levelPct', 50)],
-  }),
-);
-```
-
-The **mandatory rules** must all pass for the capability to be `AVAILABLE`. If they fail, the capability is `UNAVAILABLE` and the SDK tells you exactly which paths caused the failure. If mandatory rules pass but **degradation rules** fail, the status is `DEGRADED` — the machine can still operate, but in a reduced capacity.
-
-See [Capability Guide](./Capability-Guide.md) for the full rule reference and status meanings.
-
----
+`observed_at` is when the source measured the value. `received_at` is when Sense received it.
 
 ## 5. Evaluate
 
-```ts
-const result = machine.evaluate('warehouse.pick');
+```python
+result = machine.evaluate("warehouse.pick")
 
-console.log(result.status);       // 'AVAILABLE' | 'DEGRADED' | 'UNAVAILABLE' | 'UNKNOWN'
-console.log(result.explanation);  // Human-readable string
-console.log(result.failedPaths); // Paths whose rules failed (empty if AVAILABLE)
+print(result.status.value)
+print(result.blocking)
+print(result.warnings)
+print(result.unknown_paths)
 ```
 
-Evaluate once per decision point (e.g., when a task request arrives). Each evaluation also emits a **transition event** if the status changed since the last evaluation, so you can log or publish status changes:
+The status is one of:
 
-```ts
-machine.onTransition('warehouse.pick', (transition) => {
-  console.log(`${transition.capability}: ${transition.previousStatus} → ${transition.currentStatus}`);
-  // e.g. warehouse.pick: AVAILABLE → UNAVAILABLE
-});
+- `AVAILABLE` — required evidence is valid and mandatory rules pass.
+- `DEGRADED` — mandatory rules pass but a degradation condition is active.
+- `UNAVAILABLE` — a mandatory rule fails with concrete evidence.
+- `UNKNOWN` — required evidence is missing or stale.
+
+Sense never converts `UNKNOWN` into `AVAILABLE`.
+
+## 6. Read observations explicitly
+
+```python
+battery = machine.get_observation("battery.level_pct")
 ```
 
----
+For backward compatibility, `machine.observe("battery.level_pct")` can still read an existing observation, but new code should use `get_observation()`.
 
-## 6. Build a publishable snapshot
+Passing an explicit `None` is a valid telemetry value:
 
-When you need to share machine state externally (to a dashboard, peaq, or another service):
-
-```ts
-const snapshot = machine.getSnapshot();
-
-console.log(snapshot.schemaVersion);   // '1.0'
-console.log(snapshot.machineRef);       // 'robot-001'
-console.log(snapshot.observations);    // Record<string, TelemetryObservation>
-console.log(snapshot.timestamp);       // ISO 8601
+```python
+machine.observe("diagnostic.optional_value", None)
 ```
 
-Snapshots are plain JSON-compatible objects — serialize with `JSON.stringify`.
+## 7. Handle transitions
 
-### Privacy controls
-
-```ts
-// Exclude sensitive paths from the snapshot (denylist)
-const snapshot = machine.getSnapshot(['safety.internal.status']);
-
-// Include only specific paths (allowlist) — denylist is applied on top
-const snapshot = machine.getSnapshot(['safety.internal.status'], undefined, ['battery.levelPct']);
-
-// Attach metadata (e.g., fleet ID, deployment environment)
-const snapshot = machine.getSnapshot(undefined, { fleetId: 'fleet-42', env: 'production' });
+```python
+@machine.on_transition("warehouse.pick")
+def on_change(transition):
+    print(transition.label)
+    print(transition.to_dict())
 ```
 
----
+Transitions fire only when the capability status changes and include the structured reasons for the new state.
 
-## 7. Optional: publish transitions to peaq
+## 8. Create a snapshot
 
-If you have a peaq DID, configure it at construction time:
-
-```ts
-const machine = new SenseMachine({
-  machineRef: 'robot-001',
-  peaqDid: 'did:peaq:0x...',
-});
-
-machine.publishTransition('warehouse.pick');
+```python
+snapshot = machine.snapshot()
+print(snapshot.to_json())
 ```
 
-`publishTransition` emits a peaq activity event with the snapshot attached. Set `peaqFailSilently: true` if you want failures to log and continue rather than throw.
+Sense reevaluates capabilities on each snapshot request. This matters because telemetry can become stale even if no new observations arrive.
 
----
+## 9. Publish safely
 
-## What's next?
+External publication is privacy-first:
 
-- Read the **[Capability Guide](./Capability-Guide.md)** for the full rule reference, status explanations, and explainability fields.
-- Explore **[Rules Reference](../src/rules/index.ts)** for all available rule types (`equals`, `gte`, `fresh`, `exists`, `inSet`, `all`, `any`, `not`, …).
-- Check out the **Simulator Adapter** (`SimulatorAdapter`) to drive test scenarios without real hardware.
+```python
+public = snapshot.publishable_view()
+```
+
+By default, raw observations are removed.
+
+Explicitly allow evidence when needed:
+
+```python
+public = snapshot.publishable_view(
+    keep_observations=["battery.*", "localization.status"],
+)
+```
+
+## 10. Optional peaq Activity Event
+
+Install the adapter:
+
+```bash
+pip install -e packages/Sense-peaq
+```
+
+Then use the official peaqOS client:
+
+```python
+from peaq_os_sdk import PeaqosClient
+from sense_peaq import PeaqContextPublisher
+
+client = PeaqosClient.from_env()
+publisher = PeaqContextPublisher(client, machine_id=123)
+
+transition = machine.last_transition("warehouse.pick")
+if transition:
+    published = publisher.publish_transition(
+        transition,
+        machine_ref=machine.machine_ref,
+    )
+    print(published.tx_hash)
+```
+
+Sense uses a peaq Activity Event and defaults to the self-reported trust level. It does not turn locally-derived context into hardware attestation or on-chain-verifiable evidence automatically.
+
+## 11. Machine Markets
+
+Sense does not create a second marketplace.
+
+```python
+from sense_peaq import MachineMarketsAdapter, to_market_context
+
+markets = MachineMarketsAdapter(client)
+services = markets.list_market_services(limit=20)
+
+runtime_context = to_market_context(machine.snapshot())
+print(runtime_context.to_dict())
+```
+
+The network calls delegate to peaq's official `client.orchestration` API. Sense's runtime context remains a separate physical-state signal that your application can use alongside market results.
+
+## Run tests
+
+```bash
+pytest tests/unit/ -v
+pytest tests/contract/ -v
+pytest tests/integration/ -v
+pytest tests/e2e/test_pipeline.py -v
+```
+
+See [Capability Guide](docs/Capability-Guide.md) for the rule and status model.
