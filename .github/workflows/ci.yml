@@ -187,9 +187,9 @@ jobs:
               source /opt/ros/jazzy/setup.bash
               python3 -m venv --system-site-packages /tmp/sense-ros
               /tmp/sense-ros/bin/python -m pip install --upgrade pip
-              /tmp/sense-ros/bin/pip install -e ".[dev]"
+              /tmp/sense-ros/bin/pip install -e .
               /tmp/sense-ros/bin/pip install -e packages/Sense-ros2
-              /tmp/sense-ros/bin/pytest \
+              /tmp/sense-ros/bin/python -m pytest \
                 packages/Sense-ros2/tests/test_runtime_ros2.py -v
             '
 
