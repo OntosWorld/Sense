@@ -216,8 +216,8 @@ def capability(  # noqa: A001  ('capability' is the intended public name)
     ):
         return _make(effective_name, requires=None, degrade_when=None)
 
-    # With args → only return a 1-arg decorator when in @capability(name=...) form.
-    # When name_or_fn is a string (non-decorator call), return a CapabilitySpec directly.
+    # With args, return a one-argument decorator only for
+    # @capability(name=...) form. A positional string creates a spec directly.
     def decorator(fn: Callable[..., bool]) -> CapabilitySpec:
         return _make(
             effective_name,
