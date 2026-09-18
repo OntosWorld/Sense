@@ -50,7 +50,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install -e ".[dev]"
-      - run: ruff check src/ packages/
+      - run: ruff check src/ packages/ tests/
 
   format:
     name: Format check
@@ -62,7 +62,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install -e ".[dev]"
-      - run: ruff format --check src/ packages/
+      - run: ruff format --check src/ packages/ tests/
 
   contract:
     name: Contract tests
@@ -102,6 +102,67 @@ jobs:
           python -m pip install -e ".[dev]"
           python -m pip install -e packages/Sense-peaq
       - run: pytest tests/e2e/ -v
+
+  adapter-contract:
+    name: Adapter contract (\${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ros2
+            package: packages/Sense-ros2
+            tests: packages/Sense-ros2/tests
+          - name: mqtt
+            package: packages/Sense-mqtt
+            tests: packages/Sense-mqtt/tests
+          - name: http
+            package: packages/Sense-http
+            tests: packages/Sense-http/tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install core and adapter
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install -e "\${{ matrix.package }}"
+      - run: pytest "\${{ matrix.tests }}" -v
+
+  adapter-build:
+    name: Adapter build (\${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: peaq
+            package: packages/Sense-peaq
+            import_name: sense_peaq
+          - name: ros2
+            package: packages/Sense-ros2
+            import_name: sense_ros2
+          - name: mqtt
+            package: packages/Sense-mqtt
+            import_name: sense_mqtt
+          - name: http
+            package: packages/Sense-http
+            import_name: sense_http
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install build
+      - run: python -m build --outdir /tmp/adapter-dist "\${{ matrix.package }}"
+      - name: Smoke-test adapter wheel
+        run: |
+          python -m pip install -e .
+          python -m pip install /tmp/adapter-dist/*.whl
+          python -c "import \${{ matrix.import_name }}; print(\${{ matrix.import_name }}.__version__)"
 
   schema-validation:
     name: JSON schema validation
