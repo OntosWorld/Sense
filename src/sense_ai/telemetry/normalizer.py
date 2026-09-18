@@ -7,9 +7,13 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
-from sense_ai.model.observation import JSONValue, TelemetryObservation
+from sense_ai.model.observation import (
+    JSONValue,
+    TelemetryObservation,
+    is_json_value,
+)
 from sense_ai.telemetry.schema import TelemetrySchema
 from sense_ai.telemetry.transforms import (
     DEFAULT_TRANSFORMS,
@@ -19,7 +23,6 @@ from sense_ai.telemetry.transforms import (
 
 if TYPE_CHECKING:
     from sense_ai.model.machine import ContextMachine
-
 
 _MISSING = object()
 
@@ -54,14 +57,19 @@ class TelemetryMapping:
     required: bool = False
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TelemetryMapping":
+    def from_dict(cls, data: dict[str, Any]) -> TelemetryMapping:
         transform_values: list[str | dict[str, Any]] = []
-        if "transform" in data:
-            transform_values.append(data["transform"])
+        raw_transform = data.get("transform")
+        if isinstance(raw_transform, (str, dict)):
+            transform_values.append(raw_transform)
         raw_many = data.get("transforms", [])
         if isinstance(raw_many, list):
-            transform_values.extend(raw_many)
-        transforms = tuple(TransformSpec.from_value(item) for item in transform_values)
+            transform_values.extend(
+                item for item in raw_many if isinstance(item, (str, dict))
+            )
+        transforms = tuple(
+            TransformSpec.from_value(item) for item in transform_values
+        )
         ttl = data.get("ttl_ms")
         if ttl is not None and (isinstance(ttl, bool) or not isinstance(ttl, int)):
             raise ValueError("mapping ttl_ms must be an integer")
@@ -112,7 +120,7 @@ class TelemetryNormalizer:
         *,
         schema: TelemetrySchema | None = None,
         transforms: TransformRegistry | None = None,
-    ) -> "TelemetryNormalizer":
+    ) -> TelemetryNormalizer:
         raw_mappings = data.get("mappings", [])
         if not isinstance(raw_mappings, list):
             raise ValueError("normalizer mappings must be a list")
@@ -130,7 +138,7 @@ class TelemetryNormalizer:
         *,
         schema: TelemetrySchema | None = None,
         transforms: TransformRegistry | None = None,
-    ) -> "TelemetryNormalizer":
+    ) -> TelemetryNormalizer:
         raw = json.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError("normalizer config must contain a JSON object")
@@ -145,8 +153,6 @@ class TelemetryNormalizer:
         source: str | None = None,
     ) -> NormalizationResult:
         now = datetime.now(timezone.utc)
-        observed_time = observed_at or now
-        received_time = received_at or now
         result = NormalizationResult()
 
         for mapping in self._mappings:
@@ -158,18 +164,25 @@ class TelemetryNormalizer:
                             source_path=mapping.source_path,
                             target_path=mapping.target_path,
                             code="MISSING_SOURCE_FIELD",
-                            message=f"required source field {mapping.source_path!r} is missing",
+                            message=(
+                                f"required source field "
+                                f"{mapping.source_path!r} is missing"
+                            ),
                         )
                     )
                 continue
 
-            value = raw_value
-            transform_errors: list[str] = []
+            value: Any = raw_value
+            validation_errors: list[str] = []
+
             for transform in mapping.transforms:
                 try:
-                    value = self._transforms.apply(value, transform)
+                    value = self._transforms.apply(
+                        _as_json_value(value),
+                        transform,
+                    )
                 except Exception as exc:
-                    transform_errors.append(
+                    validation_errors.append(
                         f"TRANSFORM_{transform.name.upper()}: {exc}"
                     )
                     result.issues.append(
@@ -182,16 +195,18 @@ class TelemetryNormalizer:
                     )
                     break
 
-            if not _is_json_value(value):
-                transform_errors.append(
+            if not is_json_value(value):
+                validation_errors.append(
                     f"INVALID_JSON_VALUE: {type(value).__name__}"
                 )
+                normalized_value: JSONValue = None
+            else:
+                normalized_value = cast(JSONValue, value)
 
-            validation_errors: list[str] = list(transform_errors)
             if not validation_errors and self._schema is not None:
                 issues = self._schema.validate(
                     mapping.target_path,
-                    value,  # type: ignore[arg-type]
+                    normalized_value,
                 )
                 validation_errors.extend(
                     f"{issue.code}: {issue.message}" for issue in issues
@@ -207,26 +222,31 @@ class TelemetryNormalizer:
                 )
 
             spec = self._schema.get(mapping.target_path) if self._schema else None
-            ttl_ms = mapping.ttl_ms if mapping.ttl_ms is not None else (
-                spec.ttl_ms if spec is not None else None
+            ttl_ms = (
+                mapping.ttl_ms
+                if mapping.ttl_ms is not None
+                else spec.ttl_ms
+                if spec is not None
+                else None
             )
 
-            observation = TelemetryObservation(
-                path=mapping.target_path,
-                value=value if _is_json_value(value) else None,  # type: ignore[arg-type]
-                observed_at=observed_time,
-                received_at=received_time,
-                source=mapping.source or source,
-                ttl_ms=ttl_ms,
-                validation_errors=tuple(validation_errors),
+            result.observations.append(
+                TelemetryObservation(
+                    path=mapping.target_path,
+                    value=normalized_value,
+                    observed_at=observed_at or now,
+                    received_at=received_at or now,
+                    source=mapping.source or source,
+                    ttl_ms=ttl_ms,
+                    validation_errors=tuple(validation_errors),
+                )
             )
-            result.observations.append(observation)
 
         return result
 
     def ingest(
         self,
-        machine: "ContextMachine",
+        machine: ContextMachine,
         payload: Mapping[str, Any] | Any,
         **kwargs: Any,
     ) -> NormalizationResult:
@@ -256,14 +276,7 @@ def _extract(payload: Any, path: str) -> Any:
     return current
 
 
-def _is_json_value(value: Any) -> bool:
-    if value is None or isinstance(value, (str, bool, int, float)):
-        return True
-    if isinstance(value, list):
-        return all(_is_json_value(item) for item in value)
-    if isinstance(value, dict):
-        return all(
-            isinstance(key, str) and _is_json_value(item)
-            for key, item in value.items()
-        )
-    return False
+def _as_json_value(value: Any) -> JSONValue:
+    if not is_json_value(value):
+        raise ValueError(f"non-JSON telemetry value: {type(value).__name__}")
+    return cast(JSONValue, value)
