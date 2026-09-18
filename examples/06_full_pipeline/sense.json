@@ -1,0 +1,90 @@
+{
+  "telemetry": {
+    "schema": {
+      "strict": true,
+      "fields": [
+        {
+          "path": "battery.level_pct",
+          "kind": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "ttl_ms": 5000,
+          "unit": "percent"
+        },
+        {
+          "path": "safety.estop",
+          "kind": "boolean",
+          "ttl_ms": 1000
+        },
+        {
+          "path": "localization.pose",
+          "kind": "object",
+          "ttl_ms": 1500
+        },
+        {
+          "path": "payload.utilization_pct",
+          "kind": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "ttl_ms": 5000,
+          "unit": "percent"
+        }
+      ]
+    },
+    "mappings": [
+      {
+        "source": "battery.ratio",
+        "target": "battery.level_pct",
+        "transform": "ratio_to_percent",
+        "required": true
+      },
+      {
+        "source": "safety.estop",
+        "target": "safety.estop",
+        "required": true
+      },
+      {
+        "source": "localization.pose",
+        "target": "localization.pose",
+        "required": true
+      },
+      {
+        "source": "payload.utilization",
+        "target": "payload.utilization_pct",
+        "transform": "ratio_to_percent",
+        "required": true
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "name": "warehouse.pick",
+      "version": "1.0.0",
+      "description": "Pick an item using the current machine state.",
+      "requires": [
+        {
+          "op": "gte",
+          "path": "battery.level_pct",
+          "value": 20
+        },
+        {
+          "op": "equals",
+          "path": "safety.estop",
+          "value": false
+        },
+        {
+          "op": "fresh",
+          "path": "localization.pose",
+          "max_age_ms": 1000
+        }
+      ],
+      "degrade_when": [
+        {
+          "op": "gte",
+          "path": "payload.utilization_pct",
+          "value": 90
+        }
+      ]
+    }
+  ]
+}
