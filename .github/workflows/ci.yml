@@ -112,7 +112,7 @@ jobs:
         include:
           - name: ros2
             package: packages/Sense-ros2
-            tests: packages/Sense-ros2/tests
+            tests: packages/Sense-ros2/tests/test_mapping.py
           - name: mqtt
             package: packages/Sense-mqtt
             tests: packages/Sense-mqtt/tests
@@ -163,6 +163,35 @@ jobs:
           python -m pip install -e .
           python -m pip install /tmp/adapter-dist/*.whl
           python -c "import ${{ matrix.import_name }}; print(${{ matrix.import_name }}.__version__)"
+
+  ros2-runtime:
+    name: ROS 2 Jazzy runtime
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run real ROS 2 DDS bridge test
+        shell: bash
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            -w /workspace \
+            ros:jazzy-ros-base \
+            bash -lc '
+              set -eo pipefail
+              apt-get update
+              DEBIAN_FRONTEND=noninteractive apt-get install -y \
+                python3-pip \
+                python3-venv \
+                ros-jazzy-std-msgs
+              source /opt/ros/jazzy/setup.bash
+              python3 -m venv --system-site-packages /tmp/sense-ros
+              /tmp/sense-ros/bin/python -m pip install --upgrade pip
+              /tmp/sense-ros/bin/pip install -e .
+              /tmp/sense-ros/bin/pip install -e packages/Sense-ros2
+              /tmp/sense-ros/bin/python -m pytest \
+                packages/Sense-ros2/tests/test_runtime_ros2.py -v
+            '
 
   schema-validation:
     name: JSON schema validation

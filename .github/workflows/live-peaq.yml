@@ -1,0 +1,59 @@
+name: Live peaq verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      machine_id:
+        description: "Existing peaq machine ID to use for the Activity Event"
+        required: true
+        type: string
+      confirm_gas:
+        description: "I understand this submits a real peaq transaction and spends gas"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  activity-event:
+    name: Submit live Sense Activity Event
+    if: ${{ inputs.confirm_gas }}
+    runs-on: ubuntu-latest
+    environment: peaq-live
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Sense and peaq adapter
+        run: |
+          python -m pip install -e .
+          python -m pip install -e packages/Sense-peaq
+          python -m pip install python-dotenv
+
+      - name: Load protected peaqOS environment
+        shell: bash
+        env:
+          PEAQOS_ENV_FILE: ${{ secrets.PEAQOS_ENV_FILE }}
+        run: |
+          if [ -z "$PEAQOS_ENV_FILE" ]; then
+            echo "PEAQOS_ENV_FILE is not configured in the peaq-live environment."
+            exit 1
+          fi
+          printf '%s\n' "$PEAQOS_ENV_FILE" > .env
+          chmod 600 .env
+
+      - name: Run live Activity Event verification
+        env:
+          SENSE_RUN_LIVE_PEAQ: "1"
+          SENSE_PEAQ_MACHINE_ID: ${{ inputs.machine_id }}
+        run: pytest tests/live/test_peaq_activity_event.py -v -s
+
+      - name: Remove local environment file
+        if: always()
+        run: rm -f .env
