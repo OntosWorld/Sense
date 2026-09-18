@@ -1,15 +1,19 @@
 """Sense helpers for peaq Machine Markets / Scale.
 
-This module does not implement a parallel marketplace API. All network
-operations delegate to the official PeaqosClient.orchestration namespace.
+Network operations delegate to the official PeaqosClient.orchestration
+namespace. Runtime capability gating remains local and transport-neutral.
 """
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
+from typing import Any, Protocol, TypeVar
 
 from sense_ai import CapabilityStatus, ContextSnapshot
 from sense_ai.errors import PeaqConfigurationError, PeaqNetworkError
+
+T = TypeVar("T")
 
 
 class _OrchestrationClient(Protocol):
@@ -17,13 +21,89 @@ class _OrchestrationClient(Protocol):
     def orchestration(self) -> Any: ...
 
 
-def to_market_context(snapshot: ContextSnapshot) -> dict[str, Any]:
-    """Convert a Sense snapshot into runtime context suitable for agents.
+@dataclass(frozen=True, slots=True)
+class MarketEligibility:
+    """Local Sense decision about whether a machine can satisfy a request."""
 
-    The returned object is intentionally transport-neutral. It can be embedded
-    in an agent's task/request context without inventing unsupported peaq
-    Machine Markets fields.
+    eligible: bool
+    required_capabilities: tuple[str, ...]
+    accepted: tuple[str, ...]
+    rejected: dict[str, str]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "eligible": self.eligible,
+            "required_capabilities": list(self.required_capabilities),
+            "accepted": list(self.accepted),
+            "rejected": dict(self.rejected),
+        }
+
+
+def check_market_eligibility(
+    snapshot: ContextSnapshot,
+    required_capabilities: Iterable[str],
+    *,
+    allow_degraded: bool = True,
+) -> MarketEligibility:
+    """Gate market selection using current Sense capability state."""
+    required = tuple(dict.fromkeys(required_capabilities))
+    accepted_statuses = {CapabilityStatus.AVAILABLE}
+    if allow_degraded:
+        accepted_statuses.add(CapabilityStatus.DEGRADED)
+
+    accepted: list[str] = []
+    rejected: dict[str, str] = {}
+
+    for capability_name in required:
+        capability = snapshot.capabilities.get(capability_name)
+        if capability is None:
+            rejected[capability_name] = "MISSING_CAPABILITY"
+            continue
+        if capability.status in accepted_statuses:
+            accepted.append(capability_name)
+        else:
+            rejected[capability_name] = capability.status.value
+
+    return MarketEligibility(
+        eligible=not rejected,
+        required_capabilities=required,
+        accepted=tuple(accepted),
+        rejected=rejected,
+    )
+
+
+def filter_market_candidates(
+    candidates: Iterable[T],
+    *,
+    snapshots_by_machine: Mapping[str, ContextSnapshot],
+    required_capabilities: Iterable[str],
+    machine_ref: Callable[[T], str | None],
+    allow_degraded: bool = True,
+) -> list[T]:
+    """Filter arbitrary peaq market results using caller-supplied machine refs.
+
+    Sense deliberately does not guess fields on peaq SDK response types.
+    The caller provides the machine_ref extractor for the current SDK model.
     """
+    selected: list[T] = []
+    for candidate in candidates:
+        ref = machine_ref(candidate)
+        if ref is None:
+            continue
+        snapshot = snapshots_by_machine.get(ref)
+        if snapshot is None:
+            continue
+        if check_market_eligibility(
+            snapshot,
+            required_capabilities,
+            allow_degraded=allow_degraded,
+        ).eligible:
+            selected.append(candidate)
+    return selected
+
+
+def to_market_context(snapshot: ContextSnapshot) -> dict[str, Any]:
+    """Convert a Sense snapshot into runtime context suitable for agents."""
     capabilities: dict[str, Any] = {}
     for name, capability in snapshot.capabilities.items():
         capabilities[name] = {
@@ -74,7 +154,6 @@ class MachineMarketsAdapter:
         limit: int | None = None,
         cursor: str | None = None,
     ) -> Any:
-        """Delegate to client.orchestration.list_machines()."""
         try:
             return self._orchestration.list_machines(limit=limit, cursor=cursor)
         except Exception as exc:
@@ -87,7 +166,6 @@ class MachineMarketsAdapter:
         limit: int | None = None,
         cursor: str | None = None,
     ) -> Any:
-        """Delegate to client.orchestration.list_market_services()."""
         try:
             return self._orchestration.list_market_services(
                 options,
@@ -97,12 +175,19 @@ class MachineMarketsAdapter:
         except Exception as exc:
             raise _network_error("list market services", exc) from exc
 
-    def search_market(self, params: Any, pairing_token: str) -> Any:
-        """Delegate to client.orchestration.search_market().
+    def get_market_service(
+        self,
+        service_id: str,
+        options: Any = None,
+    ) -> Any:
+        if not service_id:
+            raise PeaqConfigurationError("service_id must be non-empty")
+        try:
+            return self._orchestration.get_market_service(service_id, options)
+        except Exception as exc:
+            raise _network_error("get market service", exc) from exc
 
-        Construct params with the request types exported by peaq-os-sdk rather
-        than a Sense-specific request model.
-        """
+    def search_market(self, params: Any, pairing_token: str) -> Any:
         if not pairing_token:
             raise PeaqConfigurationError("pairing_token is required for market search")
         try:
@@ -111,7 +196,6 @@ class MachineMarketsAdapter:
             raise _network_error("search market", exc) from exc
 
     def get_market_search(self, search_id: str) -> Any:
-        """Delegate to client.orchestration.get_market_search()."""
         if not search_id:
             raise PeaqConfigurationError("search_id must be non-empty")
         try:
