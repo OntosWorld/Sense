@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sense-peaq"
-version = "1.0.0"
+version = "0.2.0"
 description = "peaqOS adapter for Sense AI evaluation framework."
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 requires-python = ">=3.10"
-dependencies = ["sense-ai>=1.0.0"]
+dependencies = ["sense-ai>=0.2.0", "peaq-os-sdk>=0.8.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
