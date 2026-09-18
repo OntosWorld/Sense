@@ -86,9 +86,9 @@ class TestTelemetryObservation:
         obs = _obs("x", value=1.0, age_ms=10000, ttl_ms=5000)
         assert obs.is_available is False
 
-    def test_is_available_false_when_absent(self) -> None:
+    def test_explicit_null_remains_available_evidence(self) -> None:
         obs = TelemetryObservation(path="x", value=None, observed_at=NOW)
-        assert obs.is_available is False
+        assert obs.is_available is True
 
     def test_serialization_roundtrip(self) -> None:
         obs = _obs("battery.voltage", value=12.4)
@@ -171,6 +171,12 @@ class TestEquals:
         assert outcome.passed is False
         assert outcome.is_absent is True
 
+    def test_expired_ttl_is_stale_unknown_evidence(self) -> None:
+        obs = _obs("x", value=1, age_ms=2000, ttl_ms=1000)
+        outcome = Equals("x", 1).evaluate({"x": obs})
+        assert outcome.passed is False
+        assert outcome.is_stale is True
+
 
 class TestGte:
     def test_passes_when_greater(self) -> None:
@@ -232,6 +238,40 @@ class TestComposition:
     def test_none_of_all_fail(self) -> None:
         outcome = NONE_OF(Equals("x", 1), Equals("x", 2)).evaluate({"x": _obs("x", 3)})
         assert outcome.passed is True
+
+    def test_not_does_not_turn_missing_evidence_into_success(self) -> None:
+        outcome = NOT(Equals("missing", 1)).evaluate({})
+        assert outcome.passed is False
+        assert outcome.is_absent is True
+
+    def test_all_propagates_stale_evidence(self) -> None:
+        store = {
+            "a": _obs("a", 1, age_ms=5000, ttl_ms=1000),
+            "b": _obs("b", 2),
+        }
+        outcome = ALL(Equals("a", 1), Equals("b", 2)).evaluate(store)
+        assert outcome.passed is False
+        assert outcome.is_stale is True
+
+    def test_any_is_unknown_when_only_possible_match_is_missing(self) -> None:
+        store = {"a": _obs("a", 0)}
+        outcome = ANY(Equals("a", 1), Equals("b", 2)).evaluate(store)
+        assert outcome.passed is False
+        assert outcome.is_absent is True
+
+    def test_none_of_is_unknown_when_member_is_missing(self) -> None:
+        outcome = NONE_OF(Equals("a", 1), Equals("b", 2)).evaluate(
+            {"a": _obs("a", 0)}
+        )
+        assert outcome.passed is False
+        assert outcome.is_absent is True
+
+    def test_only_one_is_unknown_when_second_member_is_missing(self) -> None:
+        outcome = ONLY_ONE(Equals("a", 1), Equals("b", 2)).evaluate(
+            {"a": _obs("a", 1)}
+        )
+        assert outcome.passed is False
+        assert outcome.is_absent is True
 
 
 # ----------------------------------------------------------------------
@@ -299,6 +339,15 @@ class TestContextMachine:
         result = m.evaluate("warn.cap")
         assert result.status == CapabilityStatus.DEGRADED
         assert len(result.warnings) == 1
+
+    def test_expired_ttl_on_value_constraint_is_unknown(self) -> None:
+        m = _machine()
+        m.define_capability(
+            capability("ttl.cap", requires=[Equals("x", 1)])
+        )
+        m.observe(_obs("x", value=1, age_ms=5000, ttl_ms=1000))
+        result = m.evaluate("ttl.cap")
+        assert result.status == CapabilityStatus.UNKNOWN
 
     def test_evaluate_stale_blocking_constraint_unknown(self) -> None:
         @capability(name="fresh.cap", version="1.0", requires=[Fresh("x", max_age_ms=1000)])
