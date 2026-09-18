@@ -381,7 +381,7 @@ CI also tests and builds adapter packages.
 
 ## Compatibility and releases
 
-See [Compatibility](docs/Compatibility.md) and [Changelog](CHANGELOG.md).
+See [Compatibility](docs/Compatibility.md), [Release guide](docs/Release.md), and [Changelog](CHANGELOG.md).
 
 Releases use the workflow in `.github/workflows/release.yml`.
 
