@@ -36,7 +36,7 @@ class CapabilitySnapshot:
         }
 
     @classmethod
-    def from_result(cls, result: CapabilityResult) -> "CapabilitySnapshot":
+    def from_result(cls, result: CapabilityResult) -> CapabilitySnapshot:
         return cls(
             name=result.name,
             status=result.status,
@@ -46,7 +46,7 @@ class CapabilitySnapshot:
         )
 
     @classmethod
-    def from_dict(cls, name: str, data: dict[str, Any]) -> "CapabilitySnapshot":
+    def from_dict(cls, name: str, data: dict[str, Any]) -> CapabilitySnapshot:
         try:
             status = CapabilityStatus(data["status"])
         except (KeyError, ValueError) as exc:
@@ -118,9 +118,7 @@ class ContextSnapshot:
             "generated_at": self.generated_at.isoformat(),
             "latest_observation_at": latest.isoformat() if latest else None,
             "state": state,
-            "observations": [
-                observation.to_dict() for observation in observations
-            ],
+            "observations": [observation.to_dict() for observation in observations],
             "capabilities": {
                 name: capability.to_dict()
                 for name, capability in self.capabilities.items()
@@ -129,7 +127,7 @@ class ContextSnapshot:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ContextSnapshot":
+    def from_dict(cls, data: dict[str, Any]) -> ContextSnapshot:
         try:
             machine = data["machine"]
             generated_raw = data["generated_at"]
@@ -151,9 +149,7 @@ class ContextSnapshot:
             )
 
         try:
-            generated_at = datetime.fromisoformat(
-                generated_raw.replace("Z", "+00:00")
-            )
+            generated_at = datetime.fromisoformat(generated_raw.replace("Z", "+00:00"))
         except ValueError as exc:
             raise SerializationError(
                 f"Invalid generated_at value: {generated_raw!r}",
@@ -210,7 +206,7 @@ class ContextSnapshot:
             ) from exc
 
     @classmethod
-    def from_json(cls, value: str) -> "ContextSnapshot":
+    def from_json(cls, value: str) -> ContextSnapshot:
         """Parse a serialized snapshot."""
         try:
             data = json.loads(value)
@@ -237,7 +233,7 @@ class ContextSnapshot:
         drop_observations: Sequence[str] | None = None,
         keep_capabilities: Sequence[str] | None = None,
         drop_capabilities: Sequence[str] | None = None,
-    ) -> "ContextSnapshot":
+    ) -> ContextSnapshot:
         """Return a filtered copy for data minimization."""
         if keep_observations is not None and drop_observations is not None:
             raise InvalidRuleError(
@@ -285,7 +281,7 @@ class ContextSnapshot:
         *,
         drop_observations: Sequence[str] | None = None,
         drop_capabilities: Sequence[str] | None = None,
-    ) -> "ContextSnapshot":
+    ) -> ContextSnapshot:
         """Return an internal view with the peaq DID stripped."""
         result = self.redact(
             drop_observations=drop_observations,
@@ -299,16 +295,14 @@ class ContextSnapshot:
         *,
         keep_observations: Sequence[str] | None = None,
         keep_capabilities: Sequence[str] | None = None,
-    ) -> "ContextSnapshot":
+    ) -> ContextSnapshot:
         """Return an external view.
 
         No raw observation is included unless it is explicitly allowlisted.
         """
         result = self.redact(
             keep_observations=(
-                list(keep_observations)
-                if keep_observations is not None
-                else []
+                list(keep_observations) if keep_observations is not None else []
             ),
             keep_capabilities=keep_capabilities,
         )
