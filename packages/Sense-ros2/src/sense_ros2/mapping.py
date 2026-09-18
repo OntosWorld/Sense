@@ -33,7 +33,7 @@ class RosTopicMapping:
     source: str | None = None
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "RosTopicMapping":
+    def from_dict(cls, data: dict[str, Any]) -> RosTopicMapping:
         transform_values: list[str | dict[str, Any]] = []
         if "transform" in data:
             transform_values.append(data["transform"])
@@ -95,15 +95,11 @@ class Ros2SenseBridge:
         client: Ros2Client,
         machine: ContextMachine,
         data: dict[str, Any],
-    ) -> "Ros2SenseBridge":
+    ) -> Ros2SenseBridge:
         raw = data.get("topics", [])
         if not isinstance(raw, list):
             raise ValueError("ROS mapping config topics must be a list")
-        mappings = [
-            RosTopicMapping.from_dict(item)
-            for item in raw
-            if isinstance(item, dict)
-        ]
+        mappings = [RosTopicMapping.from_dict(item) for item in raw if isinstance(item, dict)]
         return cls(client, machine, mappings)
 
     @classmethod
