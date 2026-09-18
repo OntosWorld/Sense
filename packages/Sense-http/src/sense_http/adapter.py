@@ -46,7 +46,7 @@ class HttpPollingAdapter(TelemetryAdapter):
         data: dict[str, Any],
         *,
         client: Any = None,
-    ) -> "HttpPollingAdapter":
+    ) -> HttpPollingAdapter:
         return cls(
             machine,
             normalizer,
