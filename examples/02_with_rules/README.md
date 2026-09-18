@@ -1,6 +1,6 @@
 # Example 02 — Evaluation with Rules
 
-This example demonstrates declarative rule-based capability evaluation using Sense's built-in constraint primitives and logical composition operators.
+This example demonstrates declarative capability evaluation with Sense rule primitives and logical composition.
 
 **Run from the repo root:**
 
@@ -8,22 +8,18 @@ This example demonstrates declarative rule-based capability evaluation using Sen
 PYTHONPATH=src python examples/02_with_rules/evaluate.py
 ```
 
-## What it does
+## What it shows
 
-1. Defines four capabilities using rule expressions:
-   - `inspection.ready` — battery, estop, gripper fault code, freshness, mode validation
-   - `perception.available` — sensor availability with `ANY` and `ONLY_ONE` (XOR)
-   - `operation.enabled` — mode enforcement with `NOT` and `ANY`
-   - `diagnostics.clear` — fault code exclusion with `NONE_OF`
-2. Runs three scenarios: **healthy**, **degraded** (low battery), and **unavailable** (estop engaged)
-3. Inspects `ConstraintOutcome` objects to see pass/fail codes, observed values, and staleness flags
+- blocking requirements with `requires`;
+- degradation conditions with `degrade_when`;
+- comparison, existence, membership, and freshness rules;
+- `ALL`, `ANY`, `NOT`, `NONE_OF`, and `ONLY_ONE`;
+- structured failure reasons through `result.blocking` and `result.warnings`.
 
-## Key concepts
-
-### Rule primitives
+## Rule primitives
 
 ```python
-from sense_ai import equals, gte, lt, exists, fresh, in_
+from sense_ai import equals, exists, fresh, gte, in_, lt
 
 machine.define_capability(
     capability(
@@ -40,41 +36,38 @@ machine.define_capability(
 )
 ```
 
-### Logical composition
+## Logical composition
 
 ```python
-from sense_ai import ALL, ANY, NOT, NONE_OF, ONLY_ONE
+from sense_ai import ALL, ANY, NONE_OF, NOT, ONLY_ONE
 
 machine.define_capability(
     capability(
         "my.capability",
         requires=[
-            # All must pass (AND)
             ALL(constraint_a, constraint_b),
-            # At least one must pass (OR)
             ANY(constraint_c, constraint_d),
-            # None may pass (NOR)
             NONE_OF(constraint_e, constraint_f),
-            # Exactly one must pass (XOR)
             ONLY_ONE(constraint_g, constraint_h),
-            # Negation
             NOT(equals("mode.current", "maintenance")),
         ],
     )
 )
 ```
 
-### Severity and naming
-
-```python
-fresh("pose", max_age_ms=1000, name="localisation-stale", severity="warning")
-# → result.warnings contains this if it fails, not result.blocking
-```
-
-### ConstraintOutcome inspection
+## Inspect reasons
 
 ```python
 result = machine.evaluate("inspection.ready")
-for outcome in result.outcomes:
-    print(f"{outcome.code}  path={outcome.path}  passed={outcome.passed}  stale={outcome.is_stale}")
+
+for reason in result.blocking + result.warnings:
+    print(reason.code)
+    print(reason.path)
+    print(reason.expected)
+    print(reason.observed)
+    print(reason.observed_age_ms)
+    print(reason.is_stale)
+    print(reason.is_absent)
 ```
+
+`blocking` and `warnings` contain failed/active conditions, not every successful rule evaluation.
