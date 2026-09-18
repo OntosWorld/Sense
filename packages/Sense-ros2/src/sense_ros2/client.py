@@ -22,7 +22,7 @@ class Ros2Client:
         self._node: Any = None
         self._owns_context = False
 
-    def __enter__(self) -> "Ros2Client":
+    def __enter__(self) -> Ros2Client:
         try:
             import rclpy
             from rclpy.node import Node
