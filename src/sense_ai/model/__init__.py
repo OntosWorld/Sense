@@ -1,9 +1,14 @@
-"""Sense model package — per PRD §9 domain types."""
+"""Public Sense domain model types.
+
+ContextMachine is imported lazily so the telemetry normalization package can use
+observation types without creating a package-import cycle.
+"""
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from .capability import CapabilitySpec, capability
-from .machine import ContextMachine
 from .observation import TelemetryObservation
 from .result import (
     CapabilityResult,
@@ -13,20 +18,26 @@ from .result import (
 )
 from .snapshot import CapabilitySnapshot, ContextSnapshot
 
+if TYPE_CHECKING:
+    from .machine import ContextMachine
+
 __all__ = [
-    # Observation
     "TelemetryObservation",
-    # Machine
     "ContextMachine",
-    # Capability
     "CapabilitySpec",
     "capability",
-    # Result types
     "CapabilityResult",
     "CapabilityStatus",
     "ConstraintResult",
     "ContextTransition",
-    # Snapshot
     "CapabilitySnapshot",
     "ContextSnapshot",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name == "ContextMachine":
+        from .machine import ContextMachine
+
+        return ContextMachine
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
