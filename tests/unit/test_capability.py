@@ -96,6 +96,20 @@ class TestTelemetryObservation:
         assert restored.path == obs.path
         assert restored.value == obs.value
         assert restored.ttl_ms == obs.ttl_ms
+        assert restored.received_at == obs.received_at
+
+    def test_structured_json_value_roundtrip(self) -> None:
+        value = {"x": 1.0, "y": 2.0, "covariance": [0.1, 0.2]}
+        obs = TelemetryObservation(path="localization.pose", value=value)
+        restored = TelemetryObservation.from_dict(obs.to_dict())
+        assert restored.value == value
+
+    def test_explicit_null_is_valid_telemetry(self) -> None:
+        m = _machine()
+        stored = m.observe("sensor.optional", None)
+        assert stored is not None
+        assert m.get_observation("sensor.optional") is stored
+        assert stored.value is None
 
     def test_too_old_beyond_ttl(self) -> None:
         obs = _obs("x", value=1.0, age_ms=99999, ttl_ms=1000)
@@ -228,6 +242,7 @@ class TestContextMachine:
     def test_observe_stores_observation(self) -> None:
         m = _machine()
         obs = m.observe("speed", 120.0, source="sensor")
+        assert obs is not None
         assert obs.value == 120.0
         assert m.observations["speed"].value == 120.0
 
@@ -235,6 +250,7 @@ class TestContextMachine:
         m = _machine()
         t = _obs("temp", value=85.0, source="tm")
         stored = m.observe(t)
+        assert stored is not None
         assert stored.path == "temp"
         assert stored.value == 85.0
 
@@ -356,12 +372,12 @@ class TestSnapshot:
         assert m.last_snapshot is s2
         assert m.last_snapshot is not s1
 
-    def test_snapshot_is_idempotent_without_changes(self) -> None:
+    def test_snapshot_re_evaluates_without_changes(self) -> None:
         m = _machine()
         m.observe("x", 1.0)
         s1 = m.snapshot()
         s2 = m.snapshot()
-        assert s1 is s2  # Same object returned when nothing changed
+        assert s2 is not s1
 
 
 # ----------------------------------------------------------------------
