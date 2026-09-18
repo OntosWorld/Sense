@@ -73,9 +73,7 @@ def _number(value: JSONValue) -> float:
 
 def _json_value(value: Any) -> JSONValue:
     if not is_json_value(value):
-        raise ValueError(
-            f"transform produced non-JSON value: {type(value).__name__}"
-        )
+        raise ValueError(f"transform produced non-JSON value: {type(value).__name__}")
     return cast(JSONValue, value)
 
 
