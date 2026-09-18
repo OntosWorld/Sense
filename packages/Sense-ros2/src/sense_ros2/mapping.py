@@ -110,7 +110,7 @@ class Ros2SenseBridge:
         client: Ros2Client,
         machine: ContextMachine,
         path: str | Path,
-    ) -> "Ros2SenseBridge":
+    ) -> Ros2SenseBridge:
         try:
             import yaml
         except ImportError as exc:
