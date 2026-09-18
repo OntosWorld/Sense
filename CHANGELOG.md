@@ -24,7 +24,7 @@ This project follows Semantic Versioning and Conventional Commits.
 
 - canonical package version is `0.2.0` while the public API stabilizes;
 - heuristic “trust” scoring is now described as **evidence quality** to avoid conflict with peaq protocol trust levels;
-- peaq adapter depends on `peaq-os-sdk>=0.4.0`;
+- peaq adapter depends on `peaq-os-sdk>=0.8.0`;
 - documentation now uses the actual Python API and current peaqOS integration model.
 
 ## [0.1.0] - 2026-09-18
