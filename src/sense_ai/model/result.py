@@ -34,7 +34,7 @@ class ConstraintResult:
     is_absent: bool = False
     is_stale: bool = False
     is_invalid: bool = False
-    children: list["ConstraintResult"] = field(default_factory=list)
+    children: list[ConstraintResult] = field(default_factory=list)
 
     @property
     def is_unknown(self) -> bool:
@@ -43,10 +43,10 @@ class ConstraintResult:
     @classmethod
     def from_outcome(
         cls,
-        outcome: "ConstraintOutcome",
+        outcome: ConstraintOutcome,
         *,
         severity: str,
-    ) -> "ConstraintResult":
+    ) -> ConstraintResult:
         return cls(
             code=outcome.code,
             severity=severity,
@@ -58,10 +58,7 @@ class ConstraintResult:
             is_absent=outcome.is_absent,
             is_stale=outcome.is_stale,
             is_invalid=outcome.is_invalid,
-            children=[
-                cls.from_outcome(child, severity=severity)
-                for child in outcome.children
-            ],
+            children=[cls.from_outcome(child, severity=severity) for child in outcome.children],
         )
 
     def to_dict(self) -> dict[str, Any]:
