@@ -72,7 +72,7 @@ class CapabilityRegistry:
             machine.define_capability(self.get(name, version))
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "CapabilityRegistry":
+    def from_dict(cls, data: dict[str, Any]) -> CapabilityRegistry:
         raw_caps = data.get("capabilities", [])
         if not isinstance(raw_caps, list):
             raise ValueError("capabilities must be a list")
@@ -84,7 +84,7 @@ class CapabilityRegistry:
         return registry
 
     @classmethod
-    def from_json_file(cls, path: str | Path) -> "CapabilityRegistry":
+    def from_json_file(cls, path: str | Path) -> CapabilityRegistry:
         raw = json.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError("capability config must contain a JSON object")
@@ -94,9 +94,7 @@ class CapabilityRegistry:
 def capability_from_dict(data: dict[str, Any]) -> CapabilitySpec:
     """Compile a declarative capability object into a CapabilitySpec."""
     requires = [_constraint_from_dict(item) for item in _rule_list(data, "requires")]
-    degrade = [
-        _constraint_from_dict(item) for item in _rule_list(data, "degrade_when")
-    ]
+    degrade = [_constraint_from_dict(item) for item in _rule_list(data, "degrade_when")]
     spec = capability(
         str(data["name"]),
         requires=requires,
