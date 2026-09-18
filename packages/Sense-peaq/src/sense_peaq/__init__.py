@@ -27,3 +27,5 @@ __all__ = [
     "filter_market_candidates",
     "to_market_context",
 ]
+
+__version__ = "0.3.0"
