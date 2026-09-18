@@ -1,22 +1,32 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to Sense are documented here.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+This project follows Semantic Versioning and Conventional Commits.
 
-## [0.1.0] - 2026-09-17
+## [Unreleased]
 
-### Added
+### Fixed
 
-- Initial release
-- Phase 0: TypeScript project infrastructure with strict mode, ESLint, Prettier, Vitest
-- Phase 1: Core data model with TelemetryObservation, NormalizedMachineState, ContextSnapshot
-- Phase 2: Capability engine with deterministic rule evaluation (equals, gte, lt, fresh, etc.)
-- Phase 3: Transition engine with state-change detection and subscription API
-- Phase 4: peaq integration with identity binding and activity event serialization
-- Phase 5: Simulator adapter and TelemetryAdapter interface
-- Phase 6: MVP demo with warehouse.pick capability
-- JSON Schema Draft 2020-12 context schema (version 1.0)
-- Full TypeScript type definitions
-- JavaScript consumption support
+- re-evaluate snapshots so freshness can expire without new telemetry;
+- preserve explicit JSON `null` telemetry while adding `get_observation()`;
+- add `received_at` and structured JSON telemetry values;
+- align snapshot serialization with the versioned JSON Schema;
+- make `publishable_view()` exclude raw telemetry by default;
+- add serializable capability transitions;
+- consolidate duplicate event and evidence-quality implementations;
+- replace prototype peaq DID-document publishing with official peaq Activity Events;
+- remove the custom Machine Markets `/listings` model and delegate to peaq orchestration;
+- correct package license, repository URLs and version metadata;
+- repair CI type-check, e2e, build-smoke and dependency-audit gates.
+
+### Changed
+
+- canonical package version is `0.2.0` while the public API stabilizes;
+- heuristic “trust” scoring is now described as **evidence quality** to avoid conflict with peaq protocol trust levels;
+- peaq adapter depends on `peaq-os-sdk>=0.4.0`;
+- documentation now uses the actual Python API and current peaqOS integration model.
+
+## [0.1.0] - 2026-09-18
+
+Initial development release of the local-first Sense capability-context engine.
