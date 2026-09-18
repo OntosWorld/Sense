@@ -43,11 +43,13 @@ export interface ContextSnapshot {
 
 /**
  * Builds a ContextSnapshot from the current machine state.
+ *
  * @param state - The current NormalizedMachineState
  * @param machineRef - Developer-assigned machine identifier
  * @param peaqDid - Optional peaq DID
- * @param redactPaths - Optional list of paths to exclude from the snapshot
+ * @param redactPaths - Optional denylist: paths to exclude from the snapshot
  * @param metadata - Optional additional metadata
+ * @param allowPaths - Optional allowlist: if set, only these paths are included (denylist is applied on top)
  */
 export function buildSnapshot(
   state: NormalizedMachineState,
@@ -55,12 +57,18 @@ export function buildSnapshot(
   peaqDid?: string,
   redactPaths?: readonly string[],
   metadata?: Record<string, unknown>,
+  allowPaths?: readonly string[],
 ): ContextSnapshot {
   const redacted: string[] = [];
   const observations: Record<string, unknown> = {};
 
   const redactSet = new Set<string>(redactPaths ?? []);
+  const allowSet = allowPaths ? new Set<string>(allowPaths) : null;
+
   for (const [path, obs] of state.observations) {
+    // Apply allowlist: skip paths not in the allowlist (when one is set)
+    if (allowSet !== null && !allowSet.has(path)) continue;
+
     if (redactSet.has(path)) {
       redacted.push(path);
     } else {

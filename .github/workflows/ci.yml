@@ -31,6 +31,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Security audit
+        run: npm audit --audit-level=high
+
       - name: TypeScript typecheck
         run: npm run typecheck
 
@@ -98,8 +101,8 @@ jobs:
           import { SenseMachine, defineCapability, equals, gte } from '@sense/sdk';
 
           const machine = new SenseMachine({ machineRef: 'smoke-test' });
-          machine.observe('battery.levelPct', 80, new Date());
-          machine.observe('safety.estop', false, new Date());
+          machine.observe({ path: 'battery.levelPct', value: 80, observedAt: new Date() });
+          machine.observe({ path: 'safety.estop', value: false, observedAt: new Date() });
 
           machine.defineCapability(
             defineCapability('smoke.capability', {

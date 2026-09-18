@@ -365,14 +365,23 @@ export class SenseMachine implements ObservationSink {
   /**
    * Produces a publishable context snapshot.
    *
-   * @param redactPaths - Paths to exclude from the snapshot (privacy)
+   * @param redactPaths - Paths to exclude from the snapshot (privacy denylist)
    * @param metadata - Optional additional metadata
+   * @param allowPaths - Optional allowlist: if set, only these paths are included (denylist is applied on top)
    */
   getSnapshot(
     redactPaths?: readonly string[],
     metadata?: Record<string, unknown>,
+    allowPaths?: readonly string[],
   ): ContextSnapshot {
-    return buildSnapshot(this._state, this.machineRef, this.peaqDid, redactPaths, metadata);
+    return buildSnapshot(
+      this._state,
+      this.machineRef,
+      this.peaqDid,
+      redactPaths,
+      metadata,
+      allowPaths,
+    );
   }
 
   /**

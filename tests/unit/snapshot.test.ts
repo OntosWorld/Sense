@@ -111,12 +111,75 @@ describe('buildSnapshot', () => {
   it('excludes fields not in the schema', () => {
     const state = applyObservation(emptyState(), makeObs('battery.levelPct', 80));
     // @ts-expect-error — deliberately passing extra fields to ensure they're dropped
-    const snapshot = buildSnapshot(state, 'robot-001', undefined, undefined, undefined, {
+    const snapshot = buildSnapshot(state, 'robot-001', undefined, undefined, undefined, undefined, {
       _internal: 'should be dropped',
     } as Record<string, unknown>);
 
     const json = JSON.stringify(snapshot);
     expect(json).not.toContain('_internal');
+  });
+
+  describe('allowPaths (allowlist)', () => {
+    it('includes only allowlisted paths when allowPaths is set', () => {
+      const state = applyObservation(
+        applyObservation(
+          applyObservation(emptyState(), makeObs('a', 1)),
+          makeObs('b', 2),
+        ),
+        makeObs('c', 3),
+      );
+      const snapshot = buildSnapshot(state, 'robot-001', undefined, undefined, undefined, ['a', 'c']);
+
+      expect(Object.keys(snapshot.observations)).toHaveLength(2);
+      expect((snapshot.observations as Record<string, unknown>)['a']).toBeDefined();
+      expect((snapshot.observations as Record<string, unknown>)['b']).toBeUndefined();
+      expect((snapshot.observations as Record<string, unknown>)['c']).toBeDefined();
+    });
+
+    it('applies denylist on top of allowlist (denylist wins)', () => {
+      const state = applyObservation(
+        applyObservation(emptyState(), makeObs('a', 1)),
+        makeObs('b', 2),
+      );
+      const snapshot = buildSnapshot(
+        state,
+        'robot-001',
+        undefined,
+        ['a'],        // redactPaths — denylist
+        undefined,
+        ['a', 'b'],  // allowPaths — allowlist
+      );
+
+      expect(Object.keys(snapshot.observations)).toHaveLength(1);
+      expect((snapshot.observations as Record<string, unknown>)['a']).toBeUndefined();
+      expect((snapshot.observations as Record<string, unknown>)['b']).toBeDefined();
+      expect(snapshot.redactedPaths).toContain('a');
+    });
+
+    it('returns empty observations when allowlist has no matching paths', () => {
+      const state = applyObservation(emptyState(), makeObs('x', 1));
+      const snapshot = buildSnapshot(state, 'robot-001', undefined, undefined, undefined, ['a', 'b']);
+
+      expect(Object.keys(snapshot.observations)).toHaveLength(0);
+    });
+
+    it('includes non-existent paths in allowlist without error', () => {
+      const state = applyObservation(emptyState(), makeObs('a', 1));
+      // No error should be thrown; non-existent allowlist entries are simply absent
+      const snapshot = buildSnapshot(state, 'robot-001', undefined, undefined, undefined, ['a', 'nonexistent']);
+
+      expect(Object.keys(snapshot.observations)).toHaveLength(1);
+      expect((snapshot.observations as Record<string, unknown>)['a']).toBeDefined();
+      expect((snapshot.observations as Record<string, unknown>)['nonexistent']).toBeUndefined();
+    });
+
+    it('behaves identically to no allowlist when allowPaths is omitted', () => {
+      const state = applyObservation(emptyState(), makeObs('a', 1));
+      const withAllow = buildSnapshot(state, 'robot-001', undefined, undefined, undefined, undefined);
+      const withoutAllow = buildSnapshot(state, 'robot-001');
+
+      expect(withAllow.observations).toEqual(withoutAllow.observations);
+    });
   });
 });
 
