@@ -67,9 +67,11 @@ class TelemetryObservation:
 
     @property
     def is_available(self) -> bool:
-        """Whether the observation is present and inside its declared TTL."""
-        if self.value is None:
-            return False
+        """Whether the observation remains valid under its declared TTL.
+
+        JSON null is still an explicit observation value. Missing evidence is
+        represented by the absence of an observation at the requested path.
+        """
         if self.ttl_ms is None:
             return True
         return self.age_ms <= self.ttl_ms
