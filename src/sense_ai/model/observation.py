@@ -89,7 +89,7 @@ class TelemetryObservation:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, JSONValue]) -> "TelemetryObservation":
+    def from_dict(cls, data: dict[str, JSONValue]) -> TelemetryObservation:
         """Reconstruct an observation from its serialized representation."""
         raw_observed = data["observed_at"]
         if not isinstance(raw_observed, str):
