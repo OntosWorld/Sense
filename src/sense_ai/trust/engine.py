@@ -1,4 +1,4 @@
-"""Trust engine: deterministic trustworthiness evaluation and reporting (FR-12/FR-13)."""
+"""Experimental deterministic context/evidence quality reporting.\n\nThis module does not represent peaq trust levels, hardware attestation, safety,\nor a general claim that a machine is trustworthy.\n"""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ __all__ = ["TrustDimension", "TrustReport", "compute_trust_report"]
 
 
 class TrustDimension(Enum):
-    """Individual trustworthiness dimension."""
+    """Individual context-quality dimension."""
 
     FRESHNESS = "freshness"
     COVERAGE = "coverage"
@@ -54,7 +54,7 @@ class DimensionResult:
 @dataclass
 class TrustReport:
     """
-    Deterministic trustworthiness report for a machine's last evaluation window.
+    Deterministic context-quality report for a machine's last evaluation window.
 
     Attributes
     ----------
@@ -92,7 +92,7 @@ class TrustReport:
     # ------------------------------------------------------------------
     @property
     def verdict(self) -> str:
-        """One-word trust verdict."""
+        """Human-readable context-quality band."""
         return self.quality_band.capitalize()
 
     # ------------------------------------------------------------------
