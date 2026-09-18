@@ -7,117 +7,185 @@ on:
     branches: [main]
 
 jobs:
-  quality-gates:
-    name: Quality Gates
+  # ── Gate 1: Unit tests (all Python versions) ──────────────────────────────
+  unit-tests:
+    name: Unit tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
         with:
-          node-version: '20'
-          cache: 'npm'
+          python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
 
-      - name: Check formatting
-        run: npm run format:check
+      - name: Run unit tests
+        run: pytest tests/unit/ -v --cov=sense_ai --cov-report=term-missing
 
-      - name: Lint
-        run: npm run lint
+  # ── Gate 2: Type checking ───────────────────────────────────────────────────
+  typecheck:
+    name: Type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Security audit
-        run: npm audit --audit-level=high
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-      - name: TypeScript typecheck
-        run: npm run typecheck
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
 
-      - name: Unit tests
-        run: npm run test
+      - name: Run mypy
+        run: mypy --exclude 'src/sense_ai/rules' src/
 
+  # ── Gate 3: Lint ───────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run ruff check
+        run: ruff check src/
+
+  # ── Gate 4: Format check ───────────────────────────────────────────────────
+  format:
+    name: Format check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Check ruff formatting
+        run: ruff format --check src/
+
+  # ── Gate 5: Contract tests ──────────────────────────────────────────────────
+  contract:
+    name: Contract tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run contract tests
+        run: pytest tests/contract/ -v
+
+  # ── Gate 6: Integration tests ───────────────────────────────────────────────
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run integration tests
+        run: pytest tests/integration/ -v
+
+  # ── Gate 7: Build & publish ─────────────────────────────────────────────────
   build:
-    name: Build
+    name: Build package
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
         with:
-          node-version: '20'
-          cache: 'npm'
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        run: pip install build
+
+      - name: Build wheel and sdist
+        run: python -m build
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  # ── Gate 8: JSON Schema validation ────────────────────────────────────────
+  schema-validation:
+    name: JSON schema validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Install dependencies
-        run: npm ci
+        run: pip install -e ".[dev]"
 
-      - name: Build package
-        run: npm run build
-
-      - name: Verify dist output
+      - name: Validate schemas
         run: |
-          test -f dist/index.js || { echo "dist/index.js missing"; exit 1; }
-          test -f dist/index.d.ts || { echo "dist/index.d.ts missing"; exit 1; }
-          test -f dist/index.js.map || { echo "dist/index.js.map missing"; exit 1; }
+          python -c "
+          import json, pathlib, jsonschema
+          schema_dir = pathlib.Path('schemas')
+          for schema_file in schema_dir.glob('*.schema.json'):
+              schema = json.loads(schema_file.read_text())
+              jsonschema.Draft202012Validator.check_schema(schema)
+              print(f'  OK  {schema_file.name}')
+          print('All schemas valid.')
+          "
 
-  install-smoke-test:
-    name: Package Installation Smoke Test
+  # ── Gate 9: Security scan ──────────────────────────────────────────────────
+  security:
+    name: Security scan
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
         with:
-          node-version: '20'
-          cache: 'npm'
+          python-version: "3.12"
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install pip-audit
+        run: pip install pip-audit
 
-      - name: Build
-        run: npm run build
-
-      - name: Create temp project
-        run: |
-          mkdir /tmp/sense-smoke-test
-          cd /tmp/sense-smoke-test
-          npm init -y
-          npm pkg set type="module"
-          # Install the SDK from the repo as a local package
-          npm install --save-dev file:${GITHUB_WORKSPACE}/Sense
-          # Write a smoke test
-          cat > smoke.mjs << 'EOF'
-          import { SenseMachine, defineCapability, equals, gte } from '@sense/sdk';
-
-          const machine = new SenseMachine({ machineRef: 'smoke-test' });
-          machine.observe({ path: 'battery.levelPct', value: 80, observedAt: new Date() });
-          machine.observe({ path: 'safety.estop', value: false, observedAt: new Date() });
-
-          machine.defineCapability(
-            defineCapability('smoke.capability', {
-              requires: [
-                equals('safety.estop', false),
-                gte('battery.levelPct', 20),
-              ],
-            }),
-          );
-
-          const result = machine.evaluate('smoke.capability');
-          if (!result) throw new Error('evaluate returned undefined');
-          if (result.status !== 'AVAILABLE') throw new Error('Expected AVAILABLE, got ' + result.status);
-          console.log('✅ smoke test passed —', result.status);
-          EOF
-
-      - name: Run smoke test
-        run: node /tmp/sense-smoke-test/smoke.mjs
+      - name: Run pip-audit
+        run: pip-audit --strict --require-hashes -r <(pip freeze | grep -v sense-ai)

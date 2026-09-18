@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sense-ai"
+version = "1.0.0"  # SemVer 2.0.0 — bumped via hatch-vcs
+description = "Contextual AI evaluation framework for physical AI and robotics."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Sense AI Team", email = "team@sense-ai.dev" },
+]
+keywords = ["ai", "robotics", "context", "evaluation", "trust", "physical-ai"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "hatch",
+    "ruff>=0.5.0",
+    "mypy>=1.10",
+    "jsonschema>=4.23",
+]
+peaq = ["sense-peaq"]
+ros2 = ["sense-ros2"]
+
+[project.urls]
+Homepage = "https://github.com/sense-ai/sense"
+Documentation = "https://sense-ai.dev/docs"
+Repository = "https://github.com/sense-ai/sense"
+Changelog = "https://github.com/sense-ai/sense/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sense_ai"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/schemas",
+    "/tests",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+mypy_path = ["src"]
+exclude = ["src/sense_ai/rules"]
