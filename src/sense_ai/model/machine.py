@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from sense_ai.errors import UnknownCapabilityError
 from sense_ai.model.capability import CapabilitySpec
@@ -131,7 +131,7 @@ class ContextMachine:
             now = datetime.now(timezone.utc)
             observation = TelemetryObservation(
                 path=path_or_observation,
-                value=value,
+                value=cast(JSONValue, value),
                 observed_at=observed_at or now,
                 received_at=received_at or now,
                 source=source,
