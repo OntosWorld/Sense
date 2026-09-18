@@ -73,6 +73,35 @@ class TestPeaqActivityEvents:
         assert payload["type"] == "sense.capability_transition"
         assert payload["transition"]["capability"] == "warehouse.pick"
         assert payload["transition"]["current"] == "UNAVAILABLE"
+        assert all(
+            "observed" not in reason
+            for reason in payload["transition"]["reasons"]
+        )
+
+    def test_transition_observed_values_require_explicit_opt_in(
+        self, peaq_constants: None
+    ) -> None:
+        from sense_peaq import PeaqEventPublisher
+
+        machine = _transitioning_machine()
+        transition = machine.last_transition("warehouse.pick")
+        assert transition is not None
+
+        client = MagicMock()
+        client.submit_event.return_value = ("0xabc123", bytes.fromhex("22" * 32))
+        publisher = PeaqEventPublisher(client, machine_id=42)
+        publisher.publish_transition(
+            transition,
+            include_observed_values=True,
+        )
+
+        payload = json.loads(
+            client.submit_event.call_args.kwargs["raw_data"].decode("utf-8")
+        )
+        assert any(
+            "observed" in reason
+            for reason in payload["transition"]["reasons"]
+        )
 
     def test_invalid_trust_level_is_rejected(self) -> None:
         from sense_peaq import PeaqEventPublisher
