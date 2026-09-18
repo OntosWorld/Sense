@@ -5,7 +5,13 @@
   "description": "Serialized machine context produced by the Sense SDK. Language-neutral.",
   "version": "1.0",
   "type": "object",
-  "required": ["schema_version", "machine", "generated_at", "observations", "capabilities"],
+  "required": [
+    "schema_version",
+    "machine",
+    "generated_at",
+    "observations",
+    "capabilities"
+  ],
   "properties": {
     "schema_version": {
       "type": "string",
@@ -16,11 +22,17 @@
       "type": "object",
       "properties": {
         "ref": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Developer-assigned machine reference."
         },
         "peaq_did": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Optional peaq decentralized identifier."
         }
       }
@@ -31,7 +43,10 @@
       "description": "ISO 8601 generation timestamp (UTC)."
     },
     "latest_observation_at": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "format": "date-time",
       "description": "ISO 8601 timestamp of the most recent observation."
     },
@@ -45,7 +60,11 @@
       "description": "List of all telemetry observations.",
       "items": {
         "type": "object",
-        "required": ["path", "value", "observed_at"],
+        "required": [
+          "path",
+          "value",
+          "observed_at"
+        ],
         "properties": {
           "path": {
             "type": "string",
@@ -83,40 +102,181 @@
       "description": "Evaluated capability statuses keyed by capability name.",
       "additionalProperties": {
         "type": "object",
-        "required": ["status", "reasons"],
+        "required": [
+          "status",
+          "blocking",
+          "warnings",
+          "unknown_paths",
+          "reasons"
+        ],
         "properties": {
           "status": {
             "type": "string",
-            "enum": ["AVAILABLE", "DEGRADED", "UNAVAILABLE", "UNKNOWN"],
+            "enum": [
+              "AVAILABLE",
+              "DEGRADED",
+              "UNAVAILABLE",
+              "UNKNOWN"
+            ],
             "description": "Capability status at generation time."
           },
-          "reasons": {
+          "blocking": {
             "type": "array",
-            "description": "Human-readable list of what passed or failed.",
             "items": {
               "type": "object",
+              "required": [
+                "code",
+                "severity",
+                "path",
+                "expected"
+              ],
               "properties": {
                 "code": {
                   "type": "string",
                   "description": "Machine-readable reason code."
                 },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "blocking",
+                    "warning"
+                  ],
+                  "description": "Constraint severity."
+                },
                 "path": {
                   "type": "string",
                   "description": "Observation path this reason refers to."
                 },
-                "message": {
+                "expected": {
                   "type": "string",
-                  "description": "Human-readable explanation."
+                  "description": "Human-readable expected condition."
+                },
+                "observed": {
+                  "description": "Observed JSON value, if publication policy includes it."
+                },
+                "observed_age_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "description": "Age of evidence at evaluation time."
                 }
-              }
-            }
+              },
+              "additionalProperties": false
+            },
+            "description": "Failed blocking constraints."
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "code",
+                "severity",
+                "path",
+                "expected"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "description": "Machine-readable reason code."
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "blocking",
+                    "warning"
+                  ],
+                  "description": "Constraint severity."
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Observation path this reason refers to."
+                },
+                "expected": {
+                  "type": "string",
+                  "description": "Human-readable expected condition."
+                },
+                "observed": {
+                  "description": "Observed JSON value, if publication policy includes it."
+                },
+                "observed_age_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "description": "Age of evidence at evaluation time."
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "Active degradation constraints."
+          },
+          "unknown_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Evidence paths that are missing or stale."
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "code",
+                "severity",
+                "path",
+                "expected"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "description": "Machine-readable reason code."
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "blocking",
+                    "warning"
+                  ],
+                  "description": "Constraint severity."
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Observation path this reason refers to."
+                },
+                "expected": {
+                  "type": "string",
+                  "description": "Human-readable expected condition."
+                },
+                "observed": {
+                  "description": "Observed JSON value, if publication policy includes it."
+                },
+                "observed_age_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "description": "Age of evidence at evaluation time."
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "Combined blocking and warning reasons."
           }
         },
         "additionalProperties": false
       }
     },
     "trace_id": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "Optional distributed-trace identifier."
     }
   },
