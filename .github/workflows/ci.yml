@@ -138,6 +138,27 @@ jobs:
       - name: Run offline pipeline test
         run: pytest tests/e2e/test_pipeline.py -v
 
+  peaq-adapter:
+    name: peaq adapter contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install core and peaq adapter
+        run: |
+          pip install -e ".[dev]"
+          pip install -e packages/Sense-peaq
+
+      - name: Run peaq adapter contract tests
+        env:
+          PYTHONPATH: src:packages/Sense-peaq/src
+        run: pytest tests/e2e/test_peaq_integration.py -v
+
   # ── Gate 7: Build & publish ─────────────────────────────────────────────────
   build:
     name: Build package
