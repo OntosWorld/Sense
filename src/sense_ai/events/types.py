@@ -117,7 +117,10 @@ class TransitionDetectedEvent:
         }
 
 
-LifecycleEvent = (\n    CapabilityEvaluatedEvent | SnapshotCreatedEvent | TransitionDetectedEvent\n)\n
+LifecycleEvent = (
+    CapabilityEvaluatedEvent | SnapshotCreatedEvent | TransitionDetectedEvent
+)
+
 
 @runtime_checkable
 class EventHandler(Protocol):
