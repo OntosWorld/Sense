@@ -1,35 +1,7 @@
-"""
-Sense — Contextual evaluation framework for physical AI and robotics.
-
-Top-level public API, per PRD §11.1.
-
-Quick start::
-
-    from Sense import ContextMachine, capability
-    from sense_ai.rules import equals, gte, fresh
-
-    machine = ContextMachine(machine_ref="robot-001")
-    machine.define_capability(
-        capability(
-            "warehouse.pick",
-            requires=[
-                equals("tool.gripper.available", True),
-                gte("battery.level_pct", 20),
-                fresh("localization.pose", max_age_ms=1000),
-            ],
-            degrade_when=[
-                gte("payload.utilization_pct", 90),
-            ],
-        )
-    )
-    machine.observe("battery.level_pct", 34)
-    result = machine.evaluate("warehouse.pick")
-    print(result.status)  # AVAILABLE | DEGRADED | UNAVAILABLE | UNKNOWN
-"""
+"""Sense: local-first context and capability evaluation for physical machines."""
 
 from __future__ import annotations
 
-# Typed errors (FR-14)
 from sense_ai.errors import (
     InvalidRuleError,
     MissingEvidenceError,
@@ -41,8 +13,6 @@ from sense_ai.errors import (
     UnknownCapabilityError,
     UnsupportedPeaqFlowError,
 )
-
-# Events (FR-7)
 from sense_ai.events import (
     CapabilityEvaluatedEvent,
     EventBus,
@@ -62,8 +32,6 @@ from sense_ai.model import (
 )
 from sense_ai.model.capability import capability
 from sense_ai.model.result import CapabilityResult, ConstraintResult
-
-# Re-export rules from the top-level for the most common imports (PRD §11.1)
 from sense_ai.rules import (
     ALL,
     ANY,
@@ -89,72 +57,70 @@ from sense_ai.rules import (
     lt,
     lte,
 )
-
-# Trust framework (FR-12, FR-13)
-from sense_ai.trust import TrustDimension, TrustReport, compute_trust_report
+from sense_ai.trust import (
+    EvidenceQualityDimension,
+    EvidenceQualityReport,
+    TrustDimension,
+    TrustReport,
+    compute_evidence_quality,
+    compute_trust_report,
+)
 
 __all__ = [
-    # Core machine
-    "ContextMachine",
-    # Capability definition
-    "CapabilitySpec",
-    "capability",
-    # Result types
-    "CapabilityResult",
-    "CapabilityStatus",
-    "ConstraintResult",
-    "ContextTransition",
-    # Snapshot
-    "ContextSnapshot",
-    # Observation
-    "TelemetryObservation",
-    # Rules
-    "Constraint",
-    "ConstraintOutcome",
-    "Equals",
-    "Exists",
-    "Fresh",
-    "Gte",
-    "Gt",
-    "Lte",
-    "Lt",
-    "In",
     "ALL",
     "ANY",
-    "NOT",
     "NONE_OF",
+    "NOT",
     "ONLY_ONE",
-    # Convenience factories
-    "equals",
-    "exists",
-    "fresh",
-    "gte",
-    "gt",
-    "lte",
-    "lt",
-    "in_",
-    # Trust framework
-    "TrustDimension",
-    "TrustReport",
-    "compute_trust_report",
-    # Events
     "CapabilityEvaluatedEvent",
+    "CapabilityResult",
+    "CapabilitySpec",
+    "CapabilityStatus",
+    "Constraint",
+    "ConstraintOutcome",
+    "ConstraintResult",
+    "ContextMachine",
+    "ContextSnapshot",
+    "ContextTransition",
+    "Equals",
     "EventBus",
     "EventHandler",
     "EventType",
-    "RawEvent",
-    "SnapshotCreatedEvent",
-    "TransitionDetectedEvent",
-    # Errors (FR-14)
-    "SenseError",
-    "SchemaValidationError",
+    "EvidenceQualityDimension",
+    "EvidenceQualityReport",
+    "Exists",
+    "Fresh",
+    "Gt",
+    "Gte",
+    "In",
     "InvalidRuleError",
-    "UnknownCapabilityError",
+    "Lt",
+    "Lte",
     "MissingEvidenceError",
     "PeaqConfigurationError",
     "PeaqNetworkError",
-    "UnsupportedPeaqFlowError",
+    "RawEvent",
+    "SchemaValidationError",
+    "SenseError",
     "SerializationError",
+    "SnapshotCreatedEvent",
+    "TelemetryObservation",
+    "TransitionDetectedEvent",
+    "TrustDimension",
+    "TrustReport",
+    "UnknownCapabilityError",
+    "UnsupportedPeaqFlowError",
+    "capability",
+    "compute_evidence_quality",
+    "compute_trust_report",
+    "equals",
+    "exists",
+    "fresh",
+    "gt",
+    "gte",
+    "in_",
+    "lt",
+    "lte",
 ]
 
-__version__ = "0.1.0-dev"
+__version__ = "0.2.0"
