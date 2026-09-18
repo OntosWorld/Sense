@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -116,8 +117,7 @@ class TransitionDetectedEvent:
         }
 
 
-LifecycleEvent = CapabilityEvaluatedEvent | SnapshotCreatedEvent | TransitionDetectedEvent
-
+LifecycleEvent = (\n    CapabilityEvaluatedEvent | SnapshotCreatedEvent | TransitionDetectedEvent\n)\n
 
 @runtime_checkable
 class EventHandler(Protocol):
@@ -159,17 +159,13 @@ class EventBus:
         """Remove a lifecycle event subscription."""
         if handler is None:
             if callable(event_type_or_handler):
-                try:
+                with suppress(ValueError):
                     self._all_handlers.remove(event_type_or_handler)
-                except ValueError:
-                    pass
             return
 
         event_type = _normalise_event_type(event_type_or_handler)
-        try:
+        with suppress(ValueError):
             self._handlers[event_type].remove(handler)
-        except ValueError:
-            pass
 
     def on(
         self,
