@@ -21,7 +21,7 @@ class SenseConfig:
     capabilities: CapabilityRegistry
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "SenseConfig":
+    def from_dict(cls, data: dict[str, Any]) -> SenseConfig:
         telemetry_raw = data.get("telemetry", {})
         if not isinstance(telemetry_raw, dict):
             raise ValueError("telemetry must be an object")
@@ -44,7 +44,7 @@ class SenseConfig:
         )
 
     @classmethod
-    def from_json_file(cls, path: str | Path) -> "SenseConfig":
+    def from_json_file(cls, path: str | Path) -> SenseConfig:
         raw = json.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError("Sense config must contain a JSON object")
