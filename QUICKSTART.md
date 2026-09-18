@@ -218,7 +218,7 @@ Install:
 pip install -e packages/Sense-peaq
 ```
 
-The adapter uses the official `peaq-os-sdk>=0.4.0`.
+The adapter uses the official `peaq-os-sdk>=0.8.0`.
 
 Follow peaq's current environment configuration:
 
