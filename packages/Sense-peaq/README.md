@@ -16,7 +16,7 @@ Requirements:
 
 - Python 3.10+
 - `sense-ai>=0.2.0`
-- `peaq-os-sdk>=0.4.0`
+- `peaq-os-sdk>=0.8.0`
 
 Current peaq docs:
 
@@ -125,7 +125,9 @@ Sense passes a compact transition payload such as:
 }
 ```
 
-The project can keep detailed raw telemetry local. Use `publishable_view()` before providing a snapshot; it contains no raw observations unless the developer explicitly allowlists them.
+The project can keep detailed raw telemetry local. Transition reason values are redacted by default, and `publishable_view()` contains no raw observations unless the developer explicitly allowlists them.
+
+If an application intentionally needs observed values in the transition payload, it must opt in with `include_observed_values=True`.
 
 ## Metadata
 
