@@ -128,16 +128,34 @@ class ContextTransition:
     """
     A detected capability-state change, per PRD §9.6.
 
-    A transition occurs when a capability's status changes between evaluations.
+    The transition carries the structured reasons that caused the new state so
+    downstream systems can explain a change without re-running the evaluation.
     """
 
     capability: str
     current: CapabilityStatus
-    previous: CapabilityStatus | None = None  # None means first evaluation / UNKNOWN
+    previous: CapabilityStatus | None = None
     at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    snapshot_ref: str | None = None  # Optional reference to the generating snapshot
+    reasons: list[ConstraintResult] = field(default_factory=list)
+    snapshot_ref: str | None = None
 
     @property
     def label(self) -> str:
         prev = self.previous.value if self.previous else "NONE"
         return f"{prev} → {self.current.value}"
+
+    def to_dict(self, *, include_observed_values: bool = True) -> dict[str, Any]:
+        reason_dicts = []
+        for reason in self.reasons:
+            payload = reason.to_dict()
+            if not include_observed_values:
+                payload.pop("observed", None)
+            reason_dicts.append(payload)
+        return {
+            "capability": self.capability,
+            "previous": self.previous.value if self.previous else None,
+            "current": self.current.value,
+            "at": self.at.isoformat(),
+            "reasons": reason_dicts,
+            "snapshot_ref": self.snapshot_ref,
+        }
