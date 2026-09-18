@@ -1,11 +1,13 @@
 """
-Trust evaluation: run a trust report alongside capability evaluation
-to get a trustworthiness verdict for the current machine situation.
+Experimental context-quality example.
+
+This optional heuristic reports freshness/coverage/staleness/diversity. It is
+not peaq trust, machine credit, hardware attestation, or a safety score.
 
 Demonstrates:
-  - compute_trust_report() with a ContextSnapshot
-  - TrustDimensions: HONESTY, RECENCY, CONSISTENCY, COVERAGE, RESILIENCE
-  - TrustReport fields: verdict, trust_score, dimension_scores, reasoning
+  - compute_trust_report() with ContextSnapshot observations
+  - local context-quality dimensions
+  - quality band and score diagnostics
 
 Run from the repo root::
 
