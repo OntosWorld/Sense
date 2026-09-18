@@ -1,85 +1,39 @@
-"""Trust engine: deterministic trustworthiness evaluation and reporting (FR-12/FR-13)."""
+"""Evidence-quality scoring for Sense machine context.
+
+This module does not determine whether a machine is trustworthy and does not
+represent peaq event trust levels. It only summarizes the quality of the local
+telemetry evidence available to Sense.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from ..model.observation import TelemetryObservation
-
-__all__ = ["TrustDimension", "TrustReport", "compute_trust_report"]
+from sense_ai.model.observation import TelemetryObservation
 
 
-class TrustDimension(Enum):
-    """Individual trustworthiness dimension."""
-
+class EvidenceQualityDimension(str, Enum):
     FRESHNESS = "freshness"
     COVERAGE = "coverage"
     STALENESS = "staleness"
     DIVERSITY = "diversity"
 
 
-# Quality bands per PRD §12.2
-_QUALITY_BANDS = [
-    (0.90, "excellent"),
-    (0.75, "good"),
-    (0.55, "fair"),
-    (0.30, "poor"),
-]
-
-
-@dataclass
+@dataclass(frozen=True, slots=True)
 class DimensionResult:
-    """
-    Result for a single trust dimension.
-
-    Attributes
-    ----------
-    name : str
-        Dimension name (e.g. ``"freshness"``, ``"coverage"``).
-    score : float
-        Dimension score in [0.0, 1.0].
-    weight : float
-        Weight used when computing the overall score.
-    """
-
     name: str
     score: float
     weight: float
 
 
-@dataclass
-class TrustReport:
-    """
-    Deterministic trustworthiness report for a machine's last evaluation window.
+@dataclass(frozen=True, slots=True)
+class EvidenceQualityReport:
+    """Deterministic quality summary of the evidence in a Sense snapshot."""
 
-    Attributes
-    ----------
-    dimensions : list[DimensionResult]
-        Per-dimension results, each with name, score, and weight.
-    overall_score : float
-        Weighted mean of dimensions, also in [0.0, 1.0].
-    quality_band : str
-        One of: excellent, good, fair, poor, critical.
-    timestamp : datetime
-        When this report was generated (UTC).
-    machine_id : str
-        Identifier of the machine this report pertains to.
-    schema_version : str
-        Schema version of the report (e.g. ``"1.0"``).
-    observation_count : int
-        Number of observations used to compute this report.
-
-    Methods
-    -------
-    to_dict() -> dict
-        Serialise to a plain dict suitable for JSON encoding.
-    """
-
-    dimensions: list[DimensionResult]
+    dimensions: tuple[DimensionResult, ...]
     overall_score: float
     quality_band: str
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -87,35 +41,36 @@ class TrustReport:
     schema_version: str = "1.0"
     observation_count: int = 0
 
-    # ------------------------------------------------------------------
-    # Derived properties
-    # ------------------------------------------------------------------
     @property
     def verdict(self) -> str:
-        """One-word trust verdict."""
         return self.quality_band.capitalize()
 
-    # ------------------------------------------------------------------
-    # Serialisation
-    # ------------------------------------------------------------------
     def to_dict(self) -> dict[str, Any]:
         return {
             "dimensions": [
                 {
-                    "name": d.name,
-                    "score": round(d.score, 4),
-                    "weight": round(d.weight, 4),
+                    "name": dimension.name,
+                    "score": round(dimension.score, 4),
+                    "weight": round(dimension.weight, 4),
                 }
-                for d in self.dimensions
+                for dimension in self.dimensions
             ],
             "overall_score": round(self.overall_score, 4),
             "quality_band": self.quality_band,
-            "verdict": self.verdict,
             "timestamp": self.timestamp.isoformat(),
             "machine_id": self.machine_id,
             "schema_version": self.schema_version,
             "observation_count": self.observation_count,
         }
+
+
+_QUALITY_BANDS = (
+    (0.90, "excellent"),
+    (0.75, "good"),
+    (0.55, "fair"),
+    (0.30, "poor"),
+    (0.00, "critical"),
+)
 
 
 def _quality_band(score: float) -> str:
@@ -125,152 +80,112 @@ def _quality_band(score: float) -> str:
     return "critical"
 
 
-# ------------------------------------------------------------------
-# Dimension scorers
-# ------------------------------------------------------------------
-
-
-def _score_freshness(
-    observations: dict[str, "TelemetryObservation"], window_ms: int
+def _freshness(
+    observations: dict[str, TelemetryObservation],
+    window_ms: int,
 ) -> float:
-    """
-    How many observations in the last window_ms are fresh (age_ms <= window_ms).
-
-    Returns 0.0 when no observations exist.
-    """
     if not observations:
         return 0.0
-    fresh_count = sum(1 for obs in observations.values() if obs.age_ms <= window_ms)
-    return fresh_count / len(observations)
+    fresh = sum(
+        1
+        for observation in observations.values()
+        if observation.age_ms
+        <= (
+            min(window_ms, observation.ttl_ms)
+            if observation.ttl_ms is not None
+            else window_ms
+        )
+    )
+    return fresh / len(observations)
 
 
-def _score_coverage(
-    required_paths: frozenset[str], observations: dict[str, "TelemetryObservation"]
+def _coverage(
+    observations: dict[str, TelemetryObservation],
+    required_paths: frozenset[str],
 ) -> float:
-    """
-    Fraction of required capability paths that have at least one observation.
-
-    An observation is any TelemetryObservation keyed by the path string.
-    Returns 1.0 when required_paths is empty.
-    """
     if not required_paths:
-        return 1.0
-    covered = sum(1 for p in required_paths if p in observations)
-    return covered / len(required_paths)
+        return 1.0 if observations else 0.0
+    available = {
+        path
+        for path, observation in observations.items()
+        if observation.value is not None and observation.is_available
+    }
+    return len(available & required_paths) / len(required_paths)
 
 
-def _score_staleness(
-    observations: dict[str, "TelemetryObservation"], max_staleness_ms: int
+def _staleness(
+    observations: dict[str, TelemetryObservation],
+    max_staleness_ms: int,
 ) -> float:
-    """
-    Normalised staleness: 1.0 = all fresh, 0.0 = all stale.
-    Uses each observation's own ttl_ms to determine staleness; if ttl_ms is None
-    the observation is treated as always fresh.  Returns 0.0 when there are no
-    observations.
-    """
     if not observations:
         return 0.0
-    stale_count = 0
-    for obs in observations.values():
-        # Stale if age exceeds this obs's own TTL (if set), else the global max.
-        threshold = obs.ttl_ms if obs.ttl_ms is not None else max_staleness_ms
-        if obs.age_ms > threshold:
-            stale_count += 1
-    return 1.0 - (stale_count / len(observations))
+    fresh = 0
+    for observation in observations.values():
+        threshold = (
+            observation.ttl_ms
+            if observation.ttl_ms is not None
+            else max_staleness_ms
+        )
+        if observation.age_ms <= threshold:
+            fresh += 1
+    return fresh / len(observations)
 
 
-def _score_diversity(unique_paths: int, total_observations: int) -> float:
-    """
-    Ratio of unique capability paths to total observations.
-    Penalises repeated sampling of the same paths.
-    """
-    if total_observations == 0:
-        return 1.0
-    return unique_paths / total_observations
+def _diversity(
+    observations: list[TelemetryObservation],
+) -> float:
+    if not observations:
+        return 0.0
+    return len({observation.path for observation in observations}) / len(observations)
 
 
-# ------------------------------------------------------------------
-# Public API
-# ------------------------------------------------------------------
-
-
-def compute_trust_report(
+def compute_evidence_quality(
     schema_version: str,
     machine_id: str,
-    observations: list["TelemetryObservation"],
+    observations: list[TelemetryObservation],
     *,
     window_ms: int = 60_000,
     max_staleness_ms: int = 300_000,
     required_observation_paths: frozenset[str] | None = None,
     dimension_weights: dict[str, float] | None = None,
-) -> TrustReport:
-    """
-    Compute a deterministic :class:`TrustReport` from a list of observations.
-
-    Parameters
-    ----------
-    schema_version : str
-        Schema version string for the report (e.g. ``"1.0"``).
-    machine_id : str
-        Identifier of the machine this report pertains to.
-    observations : list[TelemetryObservation]
-        List of telemetry observations to evaluate.
-    window_ms : int
-        Observations older than this are considered stale (default 60 000 ms).
-    max_staleness_ms : int
-        Observations older than this penalise the staleness dimension
-        (default 300 000 ms).
-    required_observation_paths : frozenset[str] | None
-        Capability paths that must be present. Coverage is measured against
-        this set. If None, coverage is 1.0.
-    dimension_weights : dict[str, float] | None
-        Per-dimension weights (by name string) for the weighted mean.
-        If None the defaults are:
-        freshness=1.0, coverage=1.0, staleness=1.0, diversity=0.5.
-
-    Returns
-    -------
-    TrustReport
-        The deterministic trust report.
-    """
-    if required_observation_paths is None:
-        required_observation_paths = frozenset()
-    if dimension_weights is None:
-        dimension_weights = {
-            "freshness": 1.0,
-            "coverage": 1.0,
-            "staleness": 1.0,
-            "diversity": 0.5,
-        }
-
-    obs_dict = {obs.path: obs for obs in observations}
-    total_obs = len(obs_dict)
-
-    dim_scores: dict[str, float] = {
-        "freshness": _score_freshness(obs_dict, window_ms),
-        "coverage": _score_coverage(required_observation_paths, obs_dict),
-        "staleness": _score_staleness(obs_dict, max_staleness_ms),
-        "diversity": _score_diversity(len(obs_dict), len(observations)),
+) -> EvidenceQualityReport:
+    """Compute evidence quality from local observations only."""
+    required_paths = required_observation_paths or frozenset()
+    weights = {
+        "freshness": 1.0,
+        "coverage": 1.0,
+        "staleness": 1.0,
+        "diversity": 0.5,
     }
+    if dimension_weights:
+        weights.update(dimension_weights)
 
-    dimension_results: list[DimensionResult] = []
-    for name, score in dim_scores.items():
-        weight = dimension_weights.get(name, 0.0)
-        dimension_results.append(DimensionResult(name=name, score=score, weight=weight))
+    by_path = {observation.path: observation for observation in observations}
+    scores = {
+        "freshness": _freshness(by_path, window_ms),
+        "coverage": _coverage(by_path, required_paths),
+        "staleness": _staleness(by_path, max_staleness_ms),
+        "diversity": _diversity(observations),
+    }
+    dimensions = tuple(
+        DimensionResult(name=name, score=score, weight=weights.get(name, 0.0))
+        for name, score in scores.items()
+    )
+    weighted = [item.score for item in dimensions if item.weight > 0]
+    overall = min(weighted) if weighted else 0.0
 
-    # overall_score = minimum across all non-zero-weight dimensions.
-    # Using min() means ANY degraded dimension drags the whole score down,
-    # which correctly penalises all-stale and empty observation sets.
-    weighted_scores = [d.score for d in dimension_results if d.weight > 0]
-    overall_score = min(weighted_scores) if weighted_scores else 0.0
-
-    quality_band = _quality_band(overall_score)
-
-    return TrustReport(
-        dimensions=dimension_results,
-        overall_score=overall_score,
-        quality_band=quality_band,
+    return EvidenceQualityReport(
+        dimensions=dimensions,
+        overall_score=overall,
+        quality_band=_quality_band(overall),
         machine_id=machine_id,
         schema_version=schema_version,
-        observation_count=total_obs,
+        observation_count=len(observations),
     )
+
+
+# Compatibility aliases. New documentation uses "evidence quality" to avoid
+# colliding with peaq's protocol-level trust levels.
+TrustDimension = EvidenceQualityDimension
+TrustReport = EvidenceQualityReport
+compute_trust_report = compute_evidence_quality
