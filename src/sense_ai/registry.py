@@ -183,11 +183,14 @@ def _number(value: Any) -> float:
     return float(value)
 
 
-def _version_key(version: str) -> tuple[int, ...] | tuple[str]:
-    try:
-        return tuple(int(part) for part in version.split("."))
-    except ValueError:
-        return (version,)
+def _version_key(version: str) -> tuple[int, int, int, str]:
+    parts = version.split(".")
+    if all(part.isdigit() for part in parts[:3]):
+        numeric = [int(part) for part in parts[:3]]
+        while len(numeric) < 3:
+            numeric.append(0)
+        return (1, numeric[0], numeric[1], f"{numeric[2]:010d}")
+    return (0, 0, 0, version)
 
 
 def _latest_version(versions: tuple[str, ...]) -> str:
