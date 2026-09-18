@@ -11,7 +11,7 @@ license = "Apache-2.0"
 requires-python = ">=3.10"
 dependencies = [
     "sense-ai>=0.2.0",
-    "peaq-os-sdk>=0.4.0",
+    "peaq-os-sdk>=0.8.0",
 ]
 
 [project.urls]
