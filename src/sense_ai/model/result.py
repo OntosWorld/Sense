@@ -5,7 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from sense_ai.rules import ConstraintOutcome
 
 
 class CapabilityStatus(str, Enum):
@@ -19,7 +22,7 @@ class CapabilityStatus(str, Enum):
 
 @dataclass(slots=True)
 class ConstraintResult:
-    """Explanation of one evaluated constraint."""
+    """Explanation of one evaluated constraint, including composed children."""
 
     code: str
     severity: str
@@ -30,6 +33,36 @@ class ConstraintResult:
     constraint_name: str | None = None
     is_absent: bool = False
     is_stale: bool = False
+    is_invalid: bool = False
+    children: list["ConstraintResult"] = field(default_factory=list)
+
+    @property
+    def is_unknown(self) -> bool:
+        return self.is_absent or self.is_stale or self.is_invalid
+
+    @classmethod
+    def from_outcome(
+        cls,
+        outcome: "ConstraintOutcome",
+        *,
+        severity: str,
+    ) -> "ConstraintResult":
+        return cls(
+            code=outcome.code,
+            severity=severity,
+            path=outcome.path,
+            expected=outcome.expected,
+            observed=outcome.observed,
+            observed_age_ms=outcome.age_ms,
+            constraint_name=outcome.constraint_name,
+            is_absent=outcome.is_absent,
+            is_stale=outcome.is_stale,
+            is_invalid=outcome.is_invalid,
+            children=[
+                cls.from_outcome(child, severity=severity)
+                for child in outcome.children
+            ],
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -42,6 +75,8 @@ class ConstraintResult:
             "constraint_name": self.constraint_name,
             "is_absent": self.is_absent,
             "is_stale": self.is_stale,
+            "is_invalid": self.is_invalid,
+            "children": [child.to_dict() for child in self.children],
         }
 
 
@@ -91,17 +126,38 @@ class ContextTransition:
         return f"{previous} → {self.current.value}"
 
     def to_dict(self, *, include_observed_values: bool = True) -> dict[str, Any]:
-        reasons: list[dict[str, Any]] = []
-        for reason in self.reasons:
-            serialized = dict(reason)
-            if not include_observed_values:
-                serialized.pop("observed", None)
-            reasons.append(serialized)
         return {
             "capability": self.capability,
             "previous": self.previous.value if self.previous is not None else None,
             "current": self.current.value,
             "at": self.at.isoformat(),
             "snapshot_ref": self.snapshot_ref,
-            "reasons": reasons,
+            "reasons": [
+                _serialize_reason(
+                    reason,
+                    include_observed_values=include_observed_values,
+                )
+                for reason in self.reasons
+            ],
         }
+
+
+def _serialize_reason(
+    reason: dict[str, Any],
+    *,
+    include_observed_values: bool,
+) -> dict[str, Any]:
+    serialized = dict(reason)
+    if not include_observed_values:
+        serialized.pop("observed", None)
+    raw_children = serialized.get("children", [])
+    if isinstance(raw_children, list):
+        serialized["children"] = [
+            _serialize_reason(
+                child,
+                include_observed_values=include_observed_values,
+            )
+            for child in raw_children
+            if isinstance(child, dict)
+        ]
+    return serialized
