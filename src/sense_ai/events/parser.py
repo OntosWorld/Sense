@@ -18,10 +18,7 @@ class EventParser:
     def parse(self, raw: RawEvent) -> Event:
         """Parse a single raw event dict into an Event."""
         schema_ref = raw.get("schema")
-        if schema_ref:
-            schema = EventSchema(uri=schema_ref)
-        else:
-            schema = EventSchema()
+        schema = EventSchema(uri=schema_ref) if schema_ref else EventSchema()
 
         severity_str = raw.get("severity", "info")
         severity = EventSeverity(severity_str)
