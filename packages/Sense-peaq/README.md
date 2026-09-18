@@ -1,12 +1,20 @@
 # sense-peaq
 
-Official peaqOS integration for Sense.
+Official peaqOS integration for Sense 0.3.x.
 
-This package connects **selected Sense capability context** to peaq. It does not reimplement peaq identity, Events, Machine Markets, signing, or transaction logic.
+This package publishes selected Sense capability transitions through the official
+peaqOS Python SDK and delegates Machine Markets operations to
+`PeaqosClient.orchestration`.
+
+It does not reimplement peaq identity, Events, signing, or market schemas.
 
 ## Install
 
-From the Sense repository:
+```bash
+pip install sense-peaq
+```
+
+From this repository:
 
 ```bash
 pip install -e packages/Sense-peaq
@@ -15,131 +23,63 @@ pip install -e packages/Sense-peaq
 Requirements:
 
 - Python 3.10+
-- `sense-ai>=0.2.0`
+- `sense-ai>=0.3.0`
 - `peaq-os-sdk>=0.8.0`
 
-Current peaq docs:
-
-- https://docs.peaq.xyz/peaqos/install
-- https://docs.peaq.xyz/peaqos/concepts/events
-- https://docs.peaq.xyz/peaqos/concepts/machine-markets
-- https://docs.peaq.xyz/peaqos/sdk-reference/sdk-python
-- https://docs.peaq.xyz/peaqos/sdk-reference/orchestration-py
-
-## What this adapter does
-
-```text
-machine telemetry
-      ↓
-Sense
-      ↓
-capability transition
-      ↓
-PeaqEventPublisher
-      ↓
-PeaqosClient.submit_event()
-      ↓
-peaq Activity Event
-```
-
-For Machine Markets:
-
-```text
-Sense ContextSnapshot
-      ↓
-runtime capability context
-      ↓
-machine agent/application
-      ↓
-PeaqosClient.orchestration
-```
-
-## Configure peaqOS
-
-Follow peaq's official environment-variable documentation.
-
-Typical setup:
+## Activity Events
 
 ```python
-from dotenv import load_dotenv
 from peaq_os_sdk import PeaqosClient
-
-load_dotenv()
-
-client = PeaqosClient.from_env()
-```
-
-Sense does not read or store the private key itself. Key handling belongs to the configured peaqOS client.
-
-## Publish a capability transition
-
-```python
 from sense_peaq import PeaqEventPublisher
 
-publisher = PeaqEventPublisher(
-    client,
-    machine_id=42,
-)
+client = PeaqosClient.from_env()
+publisher = PeaqEventPublisher(client, machine_id=42)
 
 transition = machine.last_transition("warehouse.pick")
-
 if transition is not None:
-    result = publisher.publish_transition(
+    receipt = publisher.publish_transition(
         transition,
         snapshot=machine.snapshot().publishable_view(),
     )
-
-    print(result.tx_hash)
-    print(result.data_hash_hex)
 ```
 
-The publisher calls the official peaqOS `submit_event()` method with an **Activity Event**.
+Sense passes the event to the official `submit_event()` API.
 
-### Default provenance
+Observed reason values are redacted by default. Use
+`include_observed_values=True` only when disclosure is intentional.
 
-For ordinary locally derived Sense context:
+## Provenance
+
+Default Sense context is self-reported/off-chain:
 
 ```text
 trust_level = 0
 source_chain_id = 0
+source_tx_hash = None
 ```
 
-This means self-reported/off-chain data under peaq's event model.
+On-chain-verifiable context requires real provenance:
 
-Do not set trust level `1` or `2` unless the event really satisfies peaq's documented on-chain or hardware-signed provenance requirements.
+```python
+from sense_peaq import EventProvenance
 
-## Raw data and hashing
+provenance = EventProvenance.onchain(
+    source_chain_id=8453,
+    source_tx_hash="0x...",
+)
 
-The official peaqOS SDK handles the Activity Event's `raw_data` hashing and transaction submission.
-
-Sense passes a compact transition payload such as:
-
-```json
-{
-  "type": "sense.capability_transition",
-  "transition": {
-    "capability": "warehouse.pick",
-    "previous": "AVAILABLE",
-    "current": "UNAVAILABLE"
-  }
-}
+publisher.publish_transition(
+    transition,
+    provenance=provenance,
+)
 ```
 
-The project can keep detailed raw telemetry local. Transition reason values are redacted by default, and `publishable_view()` contains no raw observations unless the developer explicitly allowlists them.
+Trust level 1 is rejected without a source transaction hash.
 
-If an application intentionally needs observed values in the transition payload, it must opt in with `include_observed_values=True`.
+Sense currently rejects trust level 2 rather than claiming hardware attestation
+without an attested hardware proof.
 
-## Metadata
-
-Sense adds small metadata describing the producer and schema.
-
-peaq currently documents a 4096-byte metadata limit. The adapter rejects larger metadata rather than silently truncating it.
-
-## Machine Markets / Scale
-
-Sense does **not** expose a custom `/listings` endpoint and does not create its own marketplace model.
-
-Use:
+## Machine Markets
 
 ```python
 from sense_peaq import MachineMarketsAdapter
@@ -148,40 +88,51 @@ markets = MachineMarketsAdapter(client)
 
 machines = markets.list_machines(limit=20)
 services = markets.list_market_services(limit=20)
+service = markets.get_market_service("service-id")
 ```
 
-These calls delegate directly to:
+Search calls use request types from the current `peaq-os-sdk`:
 
 ```python
-client.orchestration
+result = markets.search_market(request, pairing_token)
+status = markets.get_market_search(result.search_id)
 ```
 
-For Scale/Machine Markets, configure:
+Sense does not define alternate market fields.
 
-```text
-PEAQOS_ORCHESTRATION_URL=https://orchestration.peaq.xyz
-```
+## Runtime physical capability gating
 
-before creating `PeaqosClient`.
-
-If your orchestrator requires API authentication, follow peaq's current documentation for `PEAQOS_API_KEY`.
-
-## Search Machine Markets
-
-Sense deliberately does not clone peaq's request models.
-
-Construct the search request with the types exported by the current `peaq-os-sdk`, then pass it through:
+Use current Sense context before accepting/selecting a machine:
 
 ```python
-result = markets.search_market(
-    request,
-    pairing_token,
+from sense_peaq import check_market_eligibility
+
+eligibility = check_market_eligibility(
+    machine.snapshot(),
+    ["warehouse.pick"],
+)
+
+if eligibility.eligible:
+    ...
+```
+
+For arbitrary market result objects:
+
+```python
+from sense_peaq import filter_market_candidates
+
+selected = filter_market_candidates(
+    candidates,
+    snapshots_by_machine=snapshots,
+    required_capabilities=["warehouse.pick"],
+    machine_ref=lambda candidate: candidate.machine_ref,
 )
 ```
 
-This keeps Sense compatible with peaq's current orchestration contract rather than freezing a duplicate schema inside this repository.
+The caller supplies the machine-reference extractor so Sense does not guess
+fields on peaq SDK response models.
 
-## Runtime Sense context
+## Runtime context
 
 ```python
 from sense_peaq import to_market_context
@@ -189,58 +140,49 @@ from sense_peaq import to_market_context
 context = to_market_context(machine.snapshot())
 ```
 
-Example shape:
+This output is application/agent context, not an undocumented peaq schema.
 
-```json
-{
-  "sense": {
-    "schema_version": "1.0",
-    "machine_ref": "robot-001",
-    "capabilities": {
-      "warehouse.pick": {
-        "status": "UNAVAILABLE",
-        "unknown_paths": [],
-        "reasons": []
-      }
-    },
-    "currently_usable_capabilities": []
-  }
-}
-```
+## Configuration
 
-This is application/agent context. It is **not** presented as an undocumented peaq Machine Markets field.
+Use the official peaqOS environment configuration:
 
-## Errors
+https://docs.peaq.xyz/peaqos/install
 
-peaq adapter failures are exposed through Sense typed errors:
+Machine Markets orchestration currently uses the official orchestration client
+surface documented by peaq:
 
-```python
-from sense_ai import PeaqConfigurationError, PeaqNetworkError
-```
-
-- `PeaqConfigurationError`: invalid local adapter configuration.
-- `PeaqNetworkError`: peaq SDK/orchestration call failed.
-
-## Security
-
-- Publishing is opt-in.
-- Sense does not automatically upload telemetry.
-- The adapter does not log private keys or seed phrases.
-- Use `ContextSnapshot.publishable_view()` for external data.
-- Trust level defaults to self-reported rather than overstating provenance.
+https://docs.peaq.xyz/peaqos/sdk-reference/orchestration-py
 
 ## Testing
+
+Deterministic adapter contract tests:
 
 ```bash
 pip install -e ".[dev]"
 pip install -e packages/Sense-peaq
-
 pytest tests/e2e/test_peaq_integration.py -v
 ```
 
-The normal e2e suite mocks the network boundary. A successful mock test proves the Sense adapter contract, not live-chain connectivity.
+Real network verification is opt-in:
 
-Live peaq verification should be run separately with a funded/configured test environment.
+```bash
+export SENSE_RUN_LIVE_PEAQ=1
+export SENSE_PEAQ_MACHINE_ID=<machine id>
+pytest tests/live/test_peaq_activity_event.py -v -s
+```
+
+See [live test instructions](../../tests/live/README.md).
+
+A mocked adapter test is not presented as proof of a live transaction.
+
+## Security
+
+- publication is opt-in;
+- raw snapshot observations are excluded by default;
+- reason values are redacted by default;
+- Sense does not manage private keys;
+- trust level cannot be upgraded without the provenance required by the adapter;
+- hardware-signed trust is intentionally unsupported until real attestation is integrated.
 
 ## License
 

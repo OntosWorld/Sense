@@ -1,158 +1,132 @@
 # sense-ros2
 
-ROS 2 adapter for Sense.
+ROS 2 telemetry adapter for Sense 0.3.x.
 
-This package is intentionally thin: ROS 2 remains the transport/runtime and Sense remains the local capability-context engine.
+ROS 2 remains the machine transport/runtime. Sense converts selected message
+fields into canonical observations and evaluates current capability locally.
 
-## Status
+## Install
 
-**Early integration.**
+Install ROS 2 for your platform and source its environment so `rclpy` is
+available.
 
-Current functionality:
+Then:
 
-- ROS 2 node lifecycle;
-- parameters;
-- subscriptions;
-- publishers;
-- manual callback mapping from ROS messages to Sense observations.
+```bash
+pip install sense-ros2
+```
 
-Not yet provided:
-
-- declarative topic-to-Sense path configuration;
-- built-in mappings for common ROS message types;
-- launch-file helpers;
-- automatic peaq publishing.
-
-## Requirements
-
-Use a supported ROS 2 installation with `rclpy` available in the sourced environment.
-
-Do not rely on `pip install rclpy` as a general installation path. Install ROS 2 using the official ROS documentation for your platform, then source the workspace/environment.
-
-Official docs:
-
-https://docs.ros.org/
-
-## Install Sense adapter
-
-From the repository:
+From this repository:
 
 ```bash
 pip install -e packages/Sense-ros2
 ```
 
-This package intentionally does not declare `rclpy` as a PyPI dependency because ROS 2 supplies it through the ROS installation.
+The package includes PyYAML for declarative mapping files. It intentionally does
+not install `rclpy` from PyPI.
 
-## Basic use
+## Declarative bridge
 
-```python
-from sense_ros2 import Ros2Client
+```yaml
+topics:
+  - topic: /battery_state
+    message_type: sensor_msgs.msg.BatteryState
+    field: percentage
+    target: battery.level_pct
+    transform: ratio_to_percent
+    ttl_ms: 5000
+    qos: 10
 
-with Ros2Client(node_name="sense_eval") as client:
-    client.declare_parameter("machine_ref", "robot-001")
-
-    from std_msgs.msg import Float32
-
-    def on_battery(message: Float32) -> None:
-        machine.observe(
-            "battery.level_pct",
-            float(message.data),
-            source="/battery/level",
-        )
-
-    client.create_subscription(
-        Float32,
-        "/battery/level",
-        on_battery,
-        qos_profile=10,
-    )
+  - topic: /localization/pose
+    message_type: geometry_msgs.msg.PoseStamped
+    field: pose
+    target: localization.pose
+    ttl_ms: 1000
 ```
 
-## ROS 2 → Sense boundary
+Use it with:
 
-The intended architecture is:
+```python
+from sense_ros2 import Ros2Client, Ros2SenseBridge
+
+with Ros2Client(node_name="sense") as client:
+    bridge = Ros2SenseBridge.from_yaml_file(
+        client,
+        machine,
+        "sense_ros2.yaml",
+    )
+    bridge.start()
+    client.spin()
+```
+
+Each message follows:
 
 ```text
-ROS 2 topic
+ROS 2 message
     ↓
-message callback / adapter
+configured field extraction
     ↓
-Sense observation path
+Sense transform / validation
     ↓
-ContextMachine
+canonical observation
     ↓
-capability evaluation
+capability evaluation by application
 ```
 
-Sense does not create a second robot-control protocol.
+## Source timestamps
 
-## Timestamps
+The bridge reads `header.stamp` by default when present and uses it as
+`observed_at`. Local arrival time becomes `received_at`.
 
-Where the ROS message contains a source timestamp, map it to `observed_at`.
-
-Use `received_at` for the local receipt time when needed.
-
-Example:
-
-```python
-from datetime import datetime, timezone
-
-from sense_ai import TelemetryObservation
-
-machine.observe(
-    TelemetryObservation(
-        path="localization.pose",
-        value={
-            "x": message.pose.position.x,
-            "y": message.pose.position.y,
-            "z": message.pose.position.z,
-        },
-        observed_at=source_time,
-        received_at=datetime.now(timezone.utc),
-        source="/localization/pose",
-        ttl_ms=1000,
-    )
-)
-```
+Override or disable with `timestamp_path`.
 
 ## QoS
 
-`Ros2Client.create_subscription()` and `create_publisher()` pass the provided QoS argument to `rclpy`.
+`qos` is passed to `rclpy.create_subscription()`.
 
-Select QoS according to the ROS 2 publisher/subscriber contract. Do not assume a larger queue depth means “higher reliability.”
+Choose QoS according to the publisher/subscriber contract; Sense does not alter
+ROS reliability, durability, or history semantics.
 
-For sensor-data QoS, reliability, durability and history semantics, follow ROS 2 documentation.
+## Lifecycle
 
-## peaq
+`Ros2Client` supports:
 
-peaq already provides its own ROS 2 machine runtime. Sense does not replace it.
+- context-managed node lifecycle;
+- subscriptions and publishers;
+- parameters;
+- subscription destruction;
+- `spin()`;
+- `spin_once()`.
 
-A deployment may use both:
+`Ros2SenseBridge.stop()` removes subscriptions without shutting down a client
+owned elsewhere.
+
+## peaq boundary
+
+Sense does not replace peaq's ROS runtime.
+
+A deployment may use:
 
 ```text
 ROS 2
- ├─ peaq ROS 2 runtime → peaq operations
- └─ Sense adapter       → physical context/capability evaluation
+ ├─ robot control / OEM graph
+ ├─ peaq ROS runtime
+ └─ sense-ros2 → normalized physical context
 ```
 
-## Example
+External peaq publication should remain explicit application behavior.
 
-Run the repository example:
+## Tests
+
+The adapter contract test uses a fake ROS message/client and does not require a
+live ROS graph:
 
 ```bash
-PYTHONPATH=src:packages/Sense-ros2/src \
-python examples/05_ros2/evaluate.py
+pytest packages/Sense-ros2/tests -v
 ```
 
-The example includes a local mock for development without a live robot.
-
-## Planned work
-
-- declarative topic → observation mapping;
-- common message extractors;
-- QoS configuration helpers;
-- launch examples;
-- clearer integration examples with peaq's ROS 2 runtime.
+A real robot/ROS deployment should additionally verify message types, QoS, frame
+semantics, and clock synchronization.
 
 ## License
 

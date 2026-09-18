@@ -2,31 +2,64 @@
 
 All notable changes to Sense are documented here.
 
-This project follows Semantic Versioning and Conventional Commits.
+Sense follows Semantic Versioning and Conventional Commits.
 
 ## [Unreleased]
 
-### Fixed
+### Added
 
-- re-evaluate snapshots so freshness can expire without new telemetry;
-- preserve explicit JSON `null` telemetry while adding `get_observation()`;
-- add `received_at` and structured JSON telemetry values;
-- align snapshot serialization with the versioned JSON Schema;
-- make `publishable_view()` exclude raw telemetry by default;
-- add serializable capability transitions;
-- consolidate duplicate event and evidence-quality implementations;
-- replace prototype peaq DID-document publishing with official peaq Activity Events;
-- remove the custom Machine Markets `/listings` model and delegate to peaq orchestration;
-- correct package license, repository URLs and version metadata;
-- repair CI type-check, e2e, build-smoke and dependency-audit gates.
+- canonical telemetry schema and validation layer;
+- deterministic raw telemetry normalization;
+- built-in unit/value transforms;
+- config-driven `SenseConfig`;
+- version-aware `CapabilityRegistry`;
+- replay/simulator adapter;
+- declarative ROS 2 topic-to-Sense bridge;
+- MQTT JSON telemetry adapter;
+- HTTP polling telemetry adapter;
+- nested composed-rule evidence;
+- peaq `EventProvenance`;
+- local Machine Markets runtime eligibility/candidate filtering;
+- opt-in real peaq Activity Event verification test;
+- complete raw telemetry pipeline example;
+- package release/build workflow;
+- compatibility policy.
 
 ### Changed
 
-- canonical package version is `0.2.0` while the public API stabilizes;
-- heuristic “trust” scoring is now described as **evidence quality** to avoid conflict with peaq protocol trust levels;
-- peaq adapter depends on `peaq-os-sdk>=0.8.0`;
-- documentation now uses the actual Python API and current peaqOS integration model.
+- first-party package line is now `0.3.0`;
+- missing, stale, and **invalid** required evidence all produce `UNKNOWN`;
+- custom capability evaluator exceptions produce `UNKNOWN`;
+- composed rules preserve child outcomes and exact unknown leaf paths;
+- ROS 2 mapping reuses the core normalization layer;
+- peaq trust level 1 requires a source transaction;
+- peaq trust level 2 is rejected until real hardware attestation is integrated;
+- CI builds and contract-tests first-party adapter packages.
+
+### Security
+
+- transition observed values remain redacted by default;
+- publishable snapshots remain telemetry-free by default;
+- peaq provenance cannot be upgraded with an unsupported flag alone.
+
+## [0.2.0] - 2026-09-18
+
+### Fixed
+
+- re-evaluated snapshots as telemetry ages;
+- preserved explicit JSON `null`;
+- added separate `received_at`;
+- supported structured JSON observations;
+- aligned context serialization with JSON Schema;
+- replaced prototype peaq publishing with official Activity Events;
+- removed invented Machine Markets listing endpoints;
+- corrected packaging, licensing, CI, and documentation.
+
+### Changed
+
+- heuristic trust scoring was reframed as evidence quality;
+- official peaq adapter uses `peaq-os-sdk>=0.8.0`.
 
 ## [0.1.0] - 2026-09-18
 
-Initial development release of the local-first Sense capability-context engine.
+Initial local-first Python capability-context engine.
