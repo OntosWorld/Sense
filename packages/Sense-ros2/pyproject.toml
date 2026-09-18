@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sense-ros2"
-version = "0.2.0"
+version = "0.3.0"
 description = "ROS 2 adapter for the Sense machine context SDK."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
-dependencies = ["sense-ai>=0.2.0", "PyYAML>=6.0"]
+dependencies = ["sense-ai>=0.3.0", "PyYAML>=6.0"]
 
 [project.urls]
 Repository = "https://github.com/OntosWorld/Sense"
