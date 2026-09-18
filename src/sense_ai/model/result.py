@@ -58,7 +58,9 @@ class ConstraintResult:
             is_absent=outcome.is_absent,
             is_stale=outcome.is_stale,
             is_invalid=outcome.is_invalid,
-            children=[cls.from_outcome(child, severity=severity) for child in outcome.children],
+            children=[
+                cls.from_outcome(child, severity=severity) for child in outcome.children
+            ],
         )
 
     def to_dict(self) -> dict[str, Any]:
