@@ -106,7 +106,7 @@ class ConstraintOutcome:
     is_absent: bool = False
     is_invalid: bool = False
     constraint_name: str | None = None
-    children: tuple["ConstraintOutcome", ...] = ()
+    children: tuple[ConstraintOutcome, ...] = ()
 
     @property
     def unknown_paths(self) -> tuple[str, ...]:
@@ -390,10 +390,7 @@ class _ComparisonOp(Constraint):
 
         # Type mismatches are invalid evidence, not proof that the machine
         # cannot perform the capability.
-        if (
-            isinstance(obs.value, bool)
-            or not isinstance(obs.value, (int, float))
-        ):
+        if isinstance(obs.value, bool) or not isinstance(obs.value, (int, float)):
             return self._invalid_outcome(
                 store,
                 code=f"INVALID_TYPE_{self._path.upper().replace('.', '_')}",
@@ -763,9 +760,7 @@ class _NoneOf(Constraint):
     def evaluate(self, store: ObservationStore) -> ConstraintOutcome:
         outcomes = [c.evaluate(store) for c in self._constraints]
         any_passed = any(outcome.passed for outcome in outcomes)
-        unknown = (not any_passed) and any(
-            outcome.is_unknown for outcome in outcomes
-        )
+        unknown = (not any_passed) and any(outcome.is_unknown for outcome in outcomes)
         passed = not any_passed and not unknown
         code = f"{'PASS' if passed else 'FAIL'}_NONE_OF"
         return ConstraintOutcome(
@@ -798,9 +793,7 @@ class _OnlyOne(Constraint):
     def evaluate(self, store: ObservationStore) -> ConstraintOutcome:
         outcomes = [c.evaluate(store) for c in self._constraints]
         passed_count = sum(1 for outcome in outcomes if outcome.passed)
-        unknown_outcomes = [
-            outcome for outcome in outcomes if outcome.is_unknown
-        ]
+        unknown_outcomes = [outcome for outcome in outcomes if outcome.is_unknown]
         definitely_failed = passed_count >= 2
         unknown = bool(unknown_outcomes) and not definitely_failed
         passed = passed_count == 1 and not unknown
