@@ -39,10 +39,13 @@ class CapabilitySnapshot:
     unknown_paths: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize to a dict matching the ``"capabilities"`` block schema."""
+        """Serialize the complete capability evaluation contract."""
         reasons: list[dict[str, Any]] = list(self.blocking) + list(self.warnings)
         return {
             "status": self.status.value,
+            "blocking": list(self.blocking),
+            "warnings": list(self.warnings),
+            "unknown_paths": list(self.unknown_paths),
             "reasons": reasons,
         }
 
@@ -162,11 +165,25 @@ class ContextSnapshot:
         capabilities: dict[str, CapabilitySnapshot] = {}
         for name, cap_dict in cap_block.items():
             try:
+                reasons = cap_dict.get("reasons", [])
+                blocking = cap_dict.get("blocking")
+                warnings = cap_dict.get("warnings")
+                if blocking is None and warnings is None:
+                    blocking = [
+                        reason
+                        for reason in reasons
+                        if reason.get("severity") == "blocking"
+                    ]
+                    warnings = [
+                        reason
+                        for reason in reasons
+                        if reason.get("severity") == "warning"
+                    ]
                 capabilities[name] = CapabilitySnapshot(
                     name=name,
                     status=CapabilityStatus(cap_dict["status"]),
-                    blocking=cap_dict.get("blocking", []),
-                    warnings=cap_dict.get("warnings", []),
+                    blocking=blocking or [],
+                    warnings=warnings or [],
                     unknown_paths=cap_dict.get("unknown_paths", []),
                 )
             except (KeyError, ValueError) as exc:
@@ -414,8 +431,13 @@ class ContextSnapshot:
         redact : Full allowlist / denylist control.
         local_view : Snapshot view for internal processing.
         """
+        # External publication is privacy-preserving by default: callers must
+        # explicitly allow observation paths. Capability results remain included.
+        observation_allowlist: Sequence[str] = (
+            () if keep_observations is None else keep_observations
+        )
         result = self.redact(
-            keep_observations=keep_observations,
+            keep_observations=observation_allowlist,
             keep_capabilities=keep_capabilities,
         )
         return ContextSnapshot(
