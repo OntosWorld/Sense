@@ -89,6 +89,7 @@ class PeaqEventPublisher:
         snapshot: ContextSnapshot | None = None,
         value: int = 0,
         metadata: dict[str, Any] | None = None,
+        include_observed_values: bool = False,
     ) -> PublishResult:
         """Submit one capability transition as a peaq Activity Event."""
         if value < 0:
@@ -101,7 +102,11 @@ class PeaqEventPublisher:
                 "peaq-os-sdk is required; install sense-peaq or peaq-os-sdk"
             ) from exc
 
-        raw_data = _encode_transition(transition, snapshot)
+        raw_data = _encode_transition(
+            transition,
+            snapshot,
+            include_observed_values=include_observed_values,
+        )
         event_metadata = _encode_metadata(
             {
                 "producer": "Sense",
@@ -136,10 +141,14 @@ class PeaqEventPublisher:
 def _encode_transition(
     transition: ContextTransition,
     snapshot: ContextSnapshot | None,
+    *,
+    include_observed_values: bool,
 ) -> bytes:
     payload: dict[str, Any] = {
         "type": "sense.capability_transition",
-        "transition": transition.to_dict(),
+        "transition": transition.to_dict(
+            include_observed_values=include_observed_values
+        ),
     }
     if snapshot is not None:
         capability = snapshot.capabilities.get(transition.capability)
