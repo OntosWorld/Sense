@@ -1,22 +1,22 @@
 [build-system]
-requires = ["hatchling", "hatch-vcs"]
+requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
 name = "sense-ai"
-version = "1.0.0"  # SemVer 2.0.0 — bumped via hatch-vcs
-description = "Contextual AI evaluation framework for physical AI and robotics."
+version = "0.2.0"
+description = "Local-first physical machine context and capability evaluation SDK."
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 requires-python = ">=3.10"
 authors = [
-    { name = "Sense AI Team", email = "team@sense-ai.dev" },
+    { name = "OntosWorld" },
 ]
-keywords = ["ai", "robotics", "context", "evaluation", "trust", "physical-ai"]
+keywords = ["robotics", "machines", "context", "capabilities", "peaq", "physical-ai"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -30,19 +30,22 @@ dependencies = []
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.1",
-    "hatch",
+    "build>=1.2",
     "ruff>=0.5.0",
     "mypy>=1.10",
     "jsonschema>=4.23",
+    "types-jsonschema>=4.23",
+    "pip-audit>=2.7",
 ]
-peaq = ["sense-peaq"]
-ros2 = ["sense-ros2"]
+peaq = ["sense-peaq>=0.2.0"]
+ros2 = ["sense-ros2>=0.2.0"]
 
 [project.urls]
-Homepage = "https://github.com/sense-ai/sense"
-Documentation = "https://sense-ai.dev/docs"
-Repository = "https://github.com/sense-ai/sense"
-Changelog = "https://github.com/sense-ai/sense/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/OntosWorld/Sense"
+Documentation = "https://github.com/OntosWorld/Sense#readme"
+Repository = "https://github.com/OntosWorld/Sense"
+Changelog = "https://github.com/OntosWorld/Sense/blob/main/CHANGELOG.md"
+Issues = "https://github.com/OntosWorld/Sense/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sense_ai"]
@@ -51,7 +54,9 @@ packages = ["src/sense_ai"]
 include = [
     "/src",
     "/schemas",
-    "/tests",
+    "/README.md",
+    "/QUICKSTART.md",
+    "/LICENSE",
 ]
 
 [tool.pytest.ini_options]
@@ -61,5 +66,11 @@ pythonpath = ["src"]
 [tool.mypy]
 python_version = "3.10"
 strict = true
-mypy_path = ["src"]
-exclude = ["src/sense_ai/rules"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

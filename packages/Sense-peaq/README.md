@@ -1,198 +1,247 @@
 # sense-peaq
 
-peaq network adapter for the Sense AI evaluation framework.
+Official peaqOS integration for Sense.
 
-Provides:
+This package connects **selected Sense capability context** to peaq. It does not reimplement peaq identity, Events, Machine Markets, signing, or transaction logic.
 
-- **`PeaqContextPublisher`** — submits capability snapshots to peaq as signed DID documents via the peaqOS RPC interface.
-- **`MachineMarketsAdapter`** — queries and bids on machine capability listings via peaq DID documents.
+## Install
 
-## Installation
+From the Sense repository:
 
 ```bash
-pip install sense-peaq
+pip install -e packages/Sense-peaq
 ```
 
-Requires the `sense-ai` core SDK and a configured peaqOS RPC endpoint. The adapter does not handle key custody — supply an already-configured peaq client.
+Requirements:
 
-## PeaqContextPublisher
+- Python 3.10+
+- `sense-ai>=0.2.0`
+- `peaq-os-sdk>=0.8.0`
 
-Publishes a `ContextSnapshot` to the peaq network as a signed DID document update.
+Current peaq docs:
+
+- https://docs.peaq.xyz/peaqos/install
+- https://docs.peaq.xyz/peaqos/concepts/events
+- https://docs.peaq.xyz/peaqos/concepts/machine-markets
+- https://docs.peaq.xyz/peaqos/sdk-reference/sdk-python
+- https://docs.peaq.xyz/peaqos/sdk-reference/orchestration-py
+
+## What this adapter does
+
+```text
+machine telemetry
+      ↓
+Sense
+      ↓
+capability transition
+      ↓
+PeaqEventPublisher
+      ↓
+PeaqosClient.submit_event()
+      ↓
+peaq Activity Event
+```
+
+For Machine Markets:
+
+```text
+Sense ContextSnapshot
+      ↓
+runtime capability context
+      ↓
+machine agent/application
+      ↓
+PeaqosClient.orchestration
+```
+
+## Configure peaqOS
+
+Follow peaq's official environment-variable documentation.
+
+Typical setup:
 
 ```python
-from datetime import datetime, timezone
-from sense_ai import ContextMachine, TelemetryObservation, capability, gte
-from sense_peaq import PeaqContextPublisher
+from dotenv import load_dotenv
+from peaq_os_sdk import PeaqosClient
 
-# Set up the machine
-machine = ContextMachine(
-    machine_ref="drone-001",
-    peaq_did="did:peaq:0x1234...abcd",
-)
+load_dotenv()
 
-machine.define_capability(
-    capability(
-        "delivery.ready",
-        requires=[gte("battery.level_pct", 30)],
-    )
-)
-
-machine.observe("battery.level_pct", 72)
-
-# Publish the current snapshot to peaq
-publisher = PeaqContextPublisher(
-    rpc_endpoint="https://api.peaq.network",
-    peaq_client=my_peaq_client,  # pre-configured peaqOS client instance
-)
-
-result = publisher.publish(machine.snapshot())
-print(result.tx_hash)   # on-chain transaction hash
-print(result.block_num)  # block number when confirmed
+client = PeaqosClient.from_env()
 ```
 
-### Key behaviour
+Sense does not read or store the private key itself. Key handling belongs to the configured peaqOS client.
 
-- Publishing is **always opt-in** — raw telemetry is never uploaded automatically.
-- The SDK submits a signed DID document update via the peaq RPC interface.
-- Submission waits for transaction confirmation (configurable timeout).
-- Raises `PeaqNetworkError` if the RPC call fails or the transaction is rejected.
-- Raises `PeaqConfigurationError` if the peaq DID is not set on the machine.
+## Publish a capability transition
 
-## MachineMarketsAdapter
+```python
+from sense_peaq import PeaqEventPublisher
 
-Queries machine capability listings from the peaq DID document registry and bids on matching listings.
+publisher = PeaqEventPublisher(
+    client,
+    machine_id=42,
+)
+
+transition = machine.last_transition("warehouse.pick")
+
+if transition is not None:
+    result = publisher.publish_transition(
+        transition,
+        snapshot=machine.snapshot().publishable_view(),
+    )
+
+    print(result.tx_hash)
+    print(result.data_hash_hex)
+```
+
+The publisher calls the official peaqOS `submit_event()` method with an **Activity Event**.
+
+### Default provenance
+
+For ordinary locally derived Sense context:
+
+```text
+trust_level = 0
+source_chain_id = 0
+```
+
+This means self-reported/off-chain data under peaq's event model.
+
+Do not set trust level `1` or `2` unless the event really satisfies peaq's documented on-chain or hardware-signed provenance requirements.
+
+## Raw data and hashing
+
+The official peaqOS SDK handles the Activity Event's `raw_data` hashing and transaction submission.
+
+Sense passes a compact transition payload such as:
+
+```json
+{
+  "type": "sense.capability_transition",
+  "transition": {
+    "capability": "warehouse.pick",
+    "previous": "AVAILABLE",
+    "current": "UNAVAILABLE"
+  }
+}
+```
+
+The project can keep detailed raw telemetry local. Transition reason values are redacted by default, and `publishable_view()` contains no raw observations unless the developer explicitly allowlists them.
+
+If an application intentionally needs observed values in the transition payload, it must opt in with `include_observed_values=True`.
+
+## Metadata
+
+Sense adds small metadata describing the producer and schema.
+
+peaq currently documents a 4096-byte metadata limit. The adapter rejects larger metadata rather than silently truncating it.
+
+## Machine Markets / Scale
+
+Sense does **not** expose a custom `/listings` endpoint and does not create its own marketplace model.
+
+Use:
 
 ```python
 from sense_peaq import MachineMarketsAdapter
 
-adapter = MachineMarketsAdapter(
-    rpc_endpoint="https://api.peaq.network",
-    peaq_client=my_peaq_client,
-)
+markets = MachineMarketsAdapter(client)
 
-# Find all listings that match a capability query
-listings = adapter.query_listings(
-    capability="warehouse.pick",
-    min_status="AVAILABLE",
-)
-
-for listing in listings:
-    print(listing.machine_did)
-    print(listing.capability)
-    print(listing.last_evaluated)
-
-# Bid on a listing
-bid = adapter.create_bid(
-    listing_id=listings[0].listing_id,
-    price_micro_peaq=1_000_000,
-)
-receipt = adapter.submit_bid(bid)
-print(receipt.tx_hash)
+machines = markets.list_machines(limit=20)
+services = markets.list_market_services(limit=20)
 ```
 
-### MachineListing
-
-Each listing returned by `query_listings` is a `MachineListing` object:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `listing_id` | `str` | Unique listing identifier on peaq |
-| `machine_did` | `str` | peaq DID of the machine |
-| `capability` | `str` | Capability name (e.g. `warehouse.pick`) |
-| `status` | `CapabilityStatus` | Last known capability status |
-| `last_evaluated` | `datetime` | When the snapshot was produced |
-| `metadata` | `dict` | Additional on-chain metadata |
-
-### Creating a listing
-
-Expose your machine's snapshot as a DID document listing:
+These calls delegate directly to:
 
 ```python
-listing = MachineListing.from_dict({
-    "listing_id": "0xabcd...",
-    "machine_did": "did:peaq:0x1234...abcd",
-    "capability": "warehouse.pick",
-    "status": "AVAILABLE",
-    "last_evaluated": "2025-01-15T10:00:00Z",
-    "metadata": {"region": "eu-west-1"},
-})
-
-adapter.register_listing(listing)
+client.orchestration
 ```
 
-## Error handling
+For Scale/Machine Markets, configure:
 
-All peaq-specific errors inherit from `sense_ai.PeaqConfigurationError` or `sense_ai.PeaqNetworkError`:
+```text
+PEAQOS_ORCHESTRATION_URL=https://orchestration.peaq.xyz
+```
+
+before creating `PeaqosClient`.
+
+If your orchestrator requires API authentication, follow peaq's current documentation for `PEAQOS_API_KEY`.
+
+## Search Machine Markets
+
+Sense deliberately does not clone peaq's request models.
+
+Construct the search request with the types exported by the current `peaq-os-sdk`, then pass it through:
 
 ```python
-from sense_ai import PeaqNetworkError, PeaqConfigurationError
-
-try:
-    result = publisher.publish(snapshot)
-except PeaqConfigurationError as e:
-    print(f"Configuration error: {e}")  # DID not set, endpoint not configured
-except PeaqNetworkError as e:
-    print(f"Network error: {e}")         # RPC failure, tx rejected
+result = markets.search_market(
+    request,
+    pairing_token,
+)
 ```
+
+This keeps Sense compatible with peaq's current orchestration contract rather than freezing a duplicate schema inside this repository.
+
+## Runtime Sense context
+
+```python
+from sense_peaq import to_market_context
+
+context = to_market_context(machine.snapshot())
+```
+
+Example shape:
+
+```json
+{
+  "sense": {
+    "schema_version": "1.0",
+    "machine_ref": "robot-001",
+    "capabilities": {
+      "warehouse.pick": {
+        "status": "UNAVAILABLE",
+        "unknown_paths": [],
+        "reasons": []
+      }
+    },
+    "currently_usable_capabilities": []
+  }
+}
+```
+
+This is application/agent context. It is **not** presented as an undocumented peaq Machine Markets field.
+
+## Errors
+
+peaq adapter failures are exposed through Sense typed errors:
+
+```python
+from sense_ai import PeaqConfigurationError, PeaqNetworkError
+```
+
+- `PeaqConfigurationError`: invalid local adapter configuration.
+- `PeaqNetworkError`: peaq SDK/orchestration call failed.
 
 ## Security
 
-- **No key custody** — the adapter never handles private keys. Supply a read-only or appropriately-scoped peaq client.
-- **Opt-in only** — telemetry is never published automatically.
-- **Typed errors** — all failure modes produce typed `SenseError` subclasses.
+- Publishing is opt-in.
+- Sense does not automatically upload telemetry.
+- The adapter does not log private keys or seed phrases.
+- Use `ContextSnapshot.publishable_view()` for external data.
+- Trust level defaults to self-reported rather than overstating provenance.
 
-## API reference
+## Testing
 
-### PeaqContextPublisher
+```bash
+pip install -e ".[dev]"
+pip install -e packages/Sense-peaq
 
-```python
-class PeaqContextPublisher:
-    def __init__(
-        self,
-        rpc_endpoint: str,
-        peaq_client: Any,          # pre-configured peaqOS client
-        tx_timeout_s: float = 30,  # seconds to wait for tx confirmation
-    ) -> None: ...
-
-    def publish(self, snapshot: ContextSnapshot) -> PublishResult:
-        """
-        Submit snapshot to peaq as a signed DID document update.
-
-        Raises:
-            PeaqConfigurationError: peaq DID not set on the machine.
-            PeaqNetworkError: RPC failure or transaction rejected.
-        Returns:
-            PublishResult with tx_hash and block_num on success.
-        """
+pytest tests/e2e/test_peaq_integration.py -v
 ```
 
-### MachineMarketsAdapter
+The normal e2e suite mocks the network boundary. A successful mock test proves the Sense adapter contract, not live-chain connectivity.
 
-```python
-class MachineMarketsAdapter:
-    def __init__(
-        self,
-        rpc_endpoint: str,
-        peaq_client: Any,
-    ) -> None: ...
-
-    def query_listings(
-        self,
-        capability: str | None = None,
-        min_status: str | None = None,
-    ) -> list[MachineListing]: ...
-
-    def register_listing(self, listing: MachineListing) -> None: ...
-
-    def create_bid(
-        self,
-        listing_id: str,
-        price_micro_peaq: int,
-    ) -> Bid: ...
-
-    def submit_bid(self, bid: Bid) -> BidReceipt: ...
-```
+Live peaq verification should be run separately with a funded/configured test environment.
 
 ## License
 
-Apache-2.0
+Apache-2.0.

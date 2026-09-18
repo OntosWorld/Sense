@@ -1,167 +1,159 @@
 # sense-ros2
 
-ROS 2 adapter for the Sense AI evaluation framework.
+ROS 2 adapter for Sense.
 
-Provides a thin `Ros2Client` context manager that wraps `rclpy` to bridge the ROS 2 graph with Sense capability evaluation.
+This package is intentionally thin: ROS 2 remains the transport/runtime and Sense remains the local capability-context engine.
 
-> **Status note:** This package is in early development. `Ros2Client` handles node lifecycle, topic subscriptions, and publishers. Topic-to-Sense path mapping, QoS configuration helpers, and worked examples are in progress.
+## Status
 
-## Installation
+**Early integration.**
+
+Current functionality:
+
+- ROS 2 node lifecycle;
+- parameters;
+- subscriptions;
+- publishers;
+- manual callback mapping from ROS messages to Sense observations.
+
+Not yet provided:
+
+- declarative topic-to-Sense path configuration;
+- built-in mappings for common ROS message types;
+- launch-file helpers;
+- automatic peaq publishing.
+
+## Requirements
+
+Use a supported ROS 2 installation with `rclpy` available in the sourced environment.
+
+Do not rely on `pip install rclpy` as a general installation path. Install ROS 2 using the official ROS documentation for your platform, then source the workspace/environment.
+
+Official docs:
+
+https://docs.ros.org/
+
+## Install Sense adapter
+
+From the repository:
 
 ```bash
-pip install sense-ros2
+pip install -e packages/Sense-ros2
 ```
 
-Requires a ROS 2 environment with `rclpy` installed. Verify with:
+This package intentionally does not declare `rclpy` as a PyPI dependency because ROS 2 supplies it through the ROS installation.
 
-```bash
-python -c "import rclpy; print(rclpy.__version__)"
-```
-
-## Quick start
+## Basic use
 
 ```python
 from sense_ros2 import Ros2Client
 
 with Ros2Client(node_name="sense_eval") as client:
-    # Declare parameters
     client.declare_parameter("machine_ref", "robot-001")
-    client.declare_parameter("peaq_did", "did:peaq:0x...")
 
-    # Read parameters
-    machine_ref = client.get_parameter("machine_ref")
-
-    # Create a subscription
     from std_msgs.msg import Float32
-    def on_battery(data: Float32) -> None:
-        print(f"Battery: {data.data}%")
 
-    client.create_subscription(Float32, "/battery/level", on_battery)
+    def on_battery(message: Float32) -> None:
+        machine.observe(
+            "battery.level_pct",
+            float(message.data),
+            source="/battery/level",
+        )
 
-    # Keep the node alive
-    client.node.get_logger().info("Sense ROS 2 node running")
+    client.create_subscription(
+        Float32,
+        "/battery/level",
+        on_battery,
+        qos_profile=10,
+    )
 ```
 
-## Ros2Client
+## ROS 2 → Sense boundary
 
-A context-manager wrapper around `rclpy.node.Node`.
+The intended architecture is:
 
-```python
-class Ros2Client:
-    def __init__(
-        self,
-        node_name: str = "sense_ai_client",
-        namespace: str | None = None,
-    ) -> None: ...
-
-    def __enter__(self) -> Ros2Client: ...
-    def __exit__(self, *args: object) -> None: ...
-
-    @property
-    def node(self) -> rclpy.node.Node:
-        """The underlying rclpy node (available only inside the context)."""
-        ...
-
-    def get_parameter(self, name: str, default: Any = None) -> Any: ...
-    def declare_parameter(self, name: str, default_value: Any = None) -> None: ...
-
-    def create_subscription(
-        self,
-        msg_type: type,
-        topic: str,
-        callback: Callable,
-        qos_profile: int = 10,
-    ) -> rclpy.node.Publisher: ...
-
-    def create_publisher(
-        self,
-        msg_type: type,
-        topic: str,
-        qos_profile: int = 10,
-    ) -> rclpy.node.Publisher: ...
+```text
+ROS 2 topic
+    ↓
+message callback / adapter
+    ↓
+Sense observation path
+    ↓
+ContextMachine
+    ↓
+capability evaluation
 ```
 
-## Using with Sense AI
+Sense does not create a second robot-control protocol.
 
-Combine `Ros2Client` with the core `sense-ai` SDK to build a full evaluation pipeline:
+## Timestamps
+
+Where the ROS message contains a source timestamp, map it to `observed_at`.
+
+Use `received_at` for the local receipt time when needed.
+
+Example:
 
 ```python
 from datetime import datetime, timezone
-from sense_ai import ContextMachine, TelemetryObservation, capability, gte, equals
-from sense_ros2 import Ros2Client
-from std_msgs.msg import Float32, Bool
-from geometry_msgs.msg import PoseStamped
 
-# Set up Sense machine
-machine = ContextMachine(machine_ref="robot-001")
-machine.define_capability(
-    capability(
-        "navigation.active",
-        requires=[
-            equals("estop.released", True),
-            gte("battery.level_pct", 20),
-        ],
+from sense_ai import TelemetryObservation
+
+machine.observe(
+    TelemetryObservation(
+        path="localization.pose",
+        value={
+            "x": message.pose.position.x,
+            "y": message.pose.position.y,
+            "z": message.pose.position.z,
+        },
+        observed_at=source_time,
+        received_at=datetime.now(timezone.utc),
+        source="/localization/pose",
+        ttl_ms=1000,
     )
 )
-
-# Bridge ROS 2 topics → Sense observations
-with Ros2Client(node_name="sense_eval") as client:
-    def on_battery(msg: Float32) -> None:
-        machine.observe("battery.level_pct", msg.data)
-
-    def on_estop(msg: Bool) -> None:
-        machine.observe("estop.released", not msg.data)
-
-    def on_pose(msg: PoseStamped) -> None:
-        machine.observe(TelemetryObservation(
-            path="localization.pose",
-            value={"x": msg.pose.position.x, "y": msg.pose.position.y},
-            observed_at=datetime.now(timezone.utc),
-            source="localization",
-        ))
-
-    client.create_subscription(Float32, "/battery/level", on_battery)
-    client.create_subscription(Bool, "/estop/status", on_estop)
-    client.create_subscription(PoseStamped, "/localization/pose", on_pose)
-
-    # Evaluate on demand
-    result = machine.evaluate("navigation.active")
-    print(result.status)
 ```
 
-## QoS Profiles
+## QoS
 
-The default QoS profile is `rclpy.qos.QoSProfile(depth=10)`. Pass a profile integer to adjust:
+`Ros2Client.create_subscription()` and `create_publisher()` pass the provided QoS argument to `rclpy`.
 
-```python
-# High-reliability sensor data
-client.create_subscription(Float32, "/safety/estop", on_estop, qos_profile=25)
+Select QoS according to the ROS 2 publisher/subscriber contract. Do not assume a larger queue depth means “higher reliability.”
 
-# Best-effort telemetry (high volume)
-client.create_subscription(FloatImage, "/camera/feed", on_image, qos_profile=1)
+For sensor-data QoS, reliability, durability and history semantics, follow ROS 2 documentation.
+
+## peaq
+
+peaq already provides its own ROS 2 machine runtime. Sense does not replace it.
+
+A deployment may use both:
+
+```text
+ROS 2
+ ├─ peaq ROS 2 runtime → peaq operations
+ └─ Sense adapter       → physical context/capability evaluation
 ```
 
-## Error handling
+## Example
 
-`Ros2Client` raises `ImportError` if `rclpy` is not available:
+Run the repository example:
 
-```python
-from sense_ros2 import Ros2Client
-
-try:
-    with Ros2Client(node_name="sense_eval") as client:
-        ...
-except ImportError as e:
-    print("ROS 2 not installed — install with: pip install rclpy")
+```bash
+PYTHONPATH=src:packages/Sense-ros2/src \
+python examples/05_ros2/evaluate.py
 ```
 
-## Planned improvements
+The example includes a local mock for development without a live robot.
 
-- [ ] `TelemetryAdapter` interface for declarative topic→path mapping
-- [ ] Built-in message adapters for common ROS types (`Float32`, `Bool`, `PoseStamped`, `JointState`, `SensorBatteryState`)
-- [ ] Automatic DID publishing via `PeaqContextPublisher` on transition events
-- [ ] Launch-file integration example
+## Planned work
+
+- declarative topic → observation mapping;
+- common message extractors;
+- QoS configuration helpers;
+- launch examples;
+- clearer integration examples with peaq's ROS 2 runtime.
 
 ## License
 
-Apache-2.0
+Apache-2.0.

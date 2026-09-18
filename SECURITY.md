@@ -1,41 +1,91 @@
 # Security Policy
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
-If you discover a security vulnerability within Sense, please report it responsibly.
+Do not disclose security vulnerabilities through a public issue.
 
-**Please do not report security vulnerabilities through public GitHub issues.**
+Use GitHub private vulnerability reporting when available, or contact the repository maintainers privately.
 
-Instead, please report them via:
+Include:
 
-1. GitHub's private vulnerability reporting (if available)
-2. Email to the maintainers
+- affected version/commit;
+- reproduction steps;
+- expected and observed behavior;
+- potential impact;
+- suggested mitigation if known.
 
-When reporting, please include:
+## Security boundaries
 
-- A description of the vulnerability
-- Steps to reproduce the issue
-- Potential impact of the vulnerability
-- Any suggested fixes (optional)
+Sense is a **context and capability evaluation SDK**. It is not a functional-safety system and must not replace hardware interlocks, emergency-stop systems, certified safety controllers, or OEM safety logic.
 
-## Security Guidelines
+An `AVAILABLE` result is application context, not a safety certification.
 
-### Private Keys and Secrets
+## Telemetry privacy
 
-Sense **never** handles private keys or seed phrases. The peaq adapter accepts an already-configured official peaqOS client. The SDK does not provide key custody.
+Raw machine telemetry remains local by default.
 
-### Telemetry Privacy
+`ContextSnapshot.publishable_view()` excludes raw observations unless the caller explicitly allowlists them.
 
-Raw machine telemetry remains local by default. Publishing to peaq is always opt-in and requires explicit developer configuration.
+```python
+public = snapshot.publishable_view(
+    keep_observations=["battery.level_pct"],
+)
+```
 
-### Input Validation
+Review every allowlist before sending machine data outside the local process.
 
-All telemetry observations are validated at the adapter boundary. Malformed data is rejected with typed errors and is never silently accepted into the normalized state store.
+## peaq keys and credentials
 
-### No Automatic Upload
+Sense does not own or log peaq private keys or seed phrases.
 
-The SDK does not upload telemetry automatically. Developers must explicitly configure and approve what data leaves the process.
+The peaq adapter accepts a configured official `PeaqosClient`. Key custody and transaction signing remain with that client.
 
-### Local-First Core
+Never commit:
 
-The core capability evaluation engine works without network access. Blockchain/network operations are never part of the local evaluation hot path.
+- `PEAQOS_PRIVATE_KEY`;
+- wallet seed phrases;
+- API keys;
+- production RPC credentials;
+- robot/operator secrets.
+
+Use environment variables or approved secret storage.
+
+## peaq event provenance
+
+Sense defaults peaq Activity Events to trust level `0` for self-reported local context.
+
+Do not configure a higher peaq trust level unless the event actually meets peaq's documented provenance requirements.
+
+## Untrusted input
+
+Treat machine telemetry as untrusted input.
+
+Sense validates observation paths and basic metadata, but domain-specific ranges and semantic validation belong to the application/OEM adapter.
+
+For example, Sense should not invent a universal valid temperature range for every machine.
+
+## ROS 2
+
+Apply ROS 2 security and network controls appropriate to the deployment.
+
+Sense's ROS adapter must not be used to bypass ROS 2 access controls, safety topics, or OEM control boundaries.
+
+## Dependencies
+
+CI runs:
+
+- linting;
+- type checking;
+- tests;
+- package build/install smoke testing;
+- dependency auditing.
+
+A failed dependency audit should be investigated before release.
+
+## Logging
+
+Do not add private keys, seed phrases, authorization headers, sensitive raw telemetry, or credentials to logs.
+
+## Supported versions
+
+Sense is pre-1.0. Security fixes are applied to the current development line unless a release policy says otherwise.

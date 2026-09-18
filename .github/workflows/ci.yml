@@ -6,8 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
-  # ── Gate 1: Unit tests (all Python versions) ──────────────────────────────
   unit-tests:
     name: Unit tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -17,175 +19,146 @@ jobs:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-
-      - name: Run unit tests
+          cache: pip
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Test
         run: pytest tests/unit/ -v --cov=sense_ai --cov-report=term-missing
 
-  # ── Gate 2: Type checking ───────────────────────────────────────────────────
   typecheck:
     name: Type check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - run: mypy -p sense_ai
 
-      - name: Install dependencies
-        run: pip install -e ".[dev]"
-
-      - name: Run mypy
-        run: mypy --exclude 'src/sense_ai/rules' src/
-
-  # ── Gate 3: Lint ───────────────────────────────────────────────────────────
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - run: ruff check src/ packages/
 
-      - name: Install dependencies
-        run: pip install -e ".[dev]"
-
-      - name: Run ruff check
-        run: ruff check src/
-
-  # ── Gate 4: Format check ───────────────────────────────────────────────────
   format:
     name: Format check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - run: ruff format --check src/ packages/
 
-      - name: Install dependencies
-        run: pip install -e ".[dev]"
-
-      - name: Check ruff formatting
-        run: ruff format --check src/
-
-  # ── Gate 5: Contract tests ──────────────────────────────────────────────────
   contract:
     name: Contract tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - run: pytest tests/contract/ -v
 
-      - name: Install dependencies
-        run: pip install -e ".[dev]"
-
-      - name: Run contract tests
-        run: pytest tests/contract/ -v
-
-  # ── Gate 6: Integration tests ───────────────────────────────────────────────
   integration:
     name: Integration tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - run: pytest tests/integration/ -v
 
-      - name: Install dependencies
-        run: pip install -e ".[dev]"
-
-      - name: Run integration tests
-        run: pytest tests/integration/ -v
-
-  # ── Gate 7: Build & publish ─────────────────────────────────────────────────
-  build:
-    name: Build package
+  e2e:
+    name: End-to-end tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+      - name: Install core and peaq adapter
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install -e packages/Sense-peaq
+      - run: pytest tests/e2e/ -v
 
-      - name: Install build dependencies
-        run: pip install build
-
-      - name: Build wheel and sdist
-        run: python -m build
-
-      - name: Upload wheel artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
-  # ── Gate 8: JSON Schema validation ────────────────────────────────────────
   schema-validation:
     name: JSON schema validation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Install dependencies
-        run: pip install -e ".[dev]"
-
+          cache: pip
+      - run: python -m pip install "jsonschema>=4.23"
       - name: Validate schemas
         run: |
-          python -c "
-          import json, pathlib, jsonschema
-          schema_dir = pathlib.Path('schemas')
-          for schema_file in schema_dir.glob('*.schema.json'):
+          python - <<'PY'
+          import json
+          import pathlib
+          import jsonschema
+
+          for schema_file in pathlib.Path("schemas").glob("*.schema.json"):
               schema = json.loads(schema_file.read_text())
               jsonschema.Draft202012Validator.check_schema(schema)
-              print(f'  OK  {schema_file.name}')
-          print('All schemas valid.')
-          "
+              print(f"OK {schema_file}")
+          PY
 
-  # ── Gate 9: Security scan ──────────────────────────────────────────────────
-  security:
-    name: Security scan
+  build:
+    name: Build and install package
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+      - run: python -m pip install build
+      - run: python -m build
+      - name: Smoke-test built wheel
+        run: |
+          python -m venv /tmp/sense-wheel
+          /tmp/sense-wheel/bin/pip install dist/*.whl
+          /tmp/sense-wheel/bin/python -c "from sense_ai import ContextMachine; print(ContextMachine())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
 
-      - name: Install pip-audit
-        run: pip install pip-audit
-
-      - name: Run pip-audit
-        run: pip-audit --strict --require-hashes -r <(pip freeze | grep -v sense-ai)
+  security:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install project and auditor
+        run: |
+          python -m pip install -e .
+          python -m pip install pip-audit
+      - name: Audit installed environment
+        run: pip-audit --local --skip-editable

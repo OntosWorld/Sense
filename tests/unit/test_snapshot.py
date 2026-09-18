@@ -299,11 +299,10 @@ class TestPublishableView:
         result = snap.publishable_view()
         assert result.peaq_did is None
 
-    def test_no_default_allowlist(self):
-        # publishable_view() only strips peaq_did; no hardcoded default filters
+    def test_default_view_excludes_raw_observations(self):
         snap = make_snapshot()
         result = snap.publishable_view()
-        assert obs_keys(result) == {"sensor.battery", "sensor.temperature", "actuator.led"}
+        assert obs_keys(result) == set()
         assert cap_keys(result) == {"battery", "temperature", "led"}
 
     def test_additional_keep_observations(self):
@@ -358,9 +357,9 @@ class TestRedactEdgeCases:
 
     def test_publishable_view_then_redact_composes(self):
         snap = make_snapshot()
-        pub = snap.publishable_view()  # no hardcoded filters, all 3 obs
+        pub = snap.publishable_view(keep_observations=["sensor.*"])
         further = pub.redact(drop_observations=["sensor.temperature"])
-        assert obs_keys(further) == {"sensor.battery", "actuator.led"}
+        assert obs_keys(further) == {"sensor.battery"}
 
     def test_no_peaq_did_local_view_still_works(self):
         snap = make_snapshot()

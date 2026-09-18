@@ -1,4 +1,4 @@
-"""Result types — CapabilityStatus, ConstraintResult, Transition — per PRD §9."""
+"""Result types for capability evaluation and state transitions."""
 
 from __future__ import annotations
 
@@ -9,58 +9,20 @@ from typing import Any
 
 
 class CapabilityStatus(str, Enum):
-    """
-    v1 capability status values, per PRD §9.4.
-
-    Consumers MUST NOT treat ``UNKNOWN`` as ``AVAILABLE``.
-    """
+    """Current usability of a machine capability."""
 
     AVAILABLE = "AVAILABLE"
-    """All required evidence exists, is fresh, and all mandatory constraints pass."""
-
     DEGRADED = "DEGRADED"
-    """
-    Mandatory constraints still permit operation, but one or more
-    developer-defined warning/degradation rules are active.
-    """
-
     UNAVAILABLE = "UNAVAILABLE"
-    """At least one mandatory rule fails (equality, comparison, or staleness)."""
-
     UNKNOWN = "UNKNOWN"
-    """
-    Required evidence is absent, invalid, or too stale to evaluate safely.
-    ``UNKNOWN`` MUST NOT be treated as ``AVAILABLE``.
-    """
 
 
-@dataclass
+@dataclass(slots=True)
 class ConstraintResult:
-    """
-    Explanation of a single rule outcome, per PRD §9.5.
-
-    Attributes
-    ----------
-    code : str
-        Machine-readable identifier for this outcome, e.g. ``"LOCALIZATION_STALE"``.
-    severity : Literal["blocking", "warning"]
-        ``"blocking"`` — mandatory constraint; causes ``UNAVAILABLE`` if violated.
-        ``"warning"`` — optional degrade rule; causes ``DEGRADED`` if violated.
-    path : str
-        The observation path this constraint evaluated.
-    expected : str
-        Human-readable description of what was expected.
-    observed : Any
-        The actual observed value, or ``None`` if the path was absent.
-    observed_age_ms : int | None
-        Age of the observation at evaluation time, in milliseconds.
-        ``None`` when the path was absent or timing is not applicable.
-    constraint_name : str | None
-        Optional name of the rule that produced this result.
-    """
+    """Explanation of one evaluated constraint."""
 
     code: str
-    severity: str  # Literal["blocking", "warning"]
+    severity: str
     path: str
     expected: str
     observed: Any
@@ -77,67 +39,69 @@ class ConstraintResult:
             "expected": self.expected,
             "observed": self.observed,
             "observed_age_ms": self.observed_age_ms,
+            "constraint_name": self.constraint_name,
+            "is_absent": self.is_absent,
+            "is_stale": self.is_stale,
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class CapabilityResult:
-    """
-    Outcome of evaluating one named capability, per PRD §9.4 / §9.5.
+    """Outcome of evaluating one named capability."""
 
-    Attributes
-    ----------
-    name : str
-        Capability name, e.g. ``"warehouse.pick"``.
-    status : CapabilityStatus
-        The overall status after evaluating all constraints.
-    blocking : list[ConstraintResult]
-        Constraints with ``severity == "blocking"`` that failed.
-        Empty when status is ``AVAILABLE``, ``DEGRADED``, or ``UNKNOWN``.
-    warnings : list[ConstraintResult]
-        Constraints with ``severity == "warning"`` that failed.
-        Non-empty when status is ``DEGRADED``.
-    unknown_paths : list[str]
-        Observation paths that were required but absent or too stale to evaluate.
-    evaluated_at : datetime
-        Timestamp of evaluation (UTC).
-    """
-
-    name: str
-    status: CapabilityStatus
+    name: str = ""
+    status: CapabilityStatus = CapabilityStatus.UNKNOWN
     blocking: list[ConstraintResult] = field(default_factory=list)
     warnings: list[ConstraintResult] = field(default_factory=list)
     unknown_paths: list[str] = field(default_factory=list)
     evaluated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     python_warnings: list[str] = field(default_factory=list)
 
+    @property
+    def reasons(self) -> list[ConstraintResult]:
+        """All blocking and warning reasons in evaluation order."""
+        return [*self.blocking, *self.warnings]
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "status": self.status.value,
-            "blocking": [r.to_dict() for r in self.blocking],
-            "warnings": [r.to_dict() for r in self.warnings],
-            "unknown_paths": self.unknown_paths,
+            "blocking": [result.to_dict() for result in self.blocking],
+            "warnings": [result.to_dict() for result in self.warnings],
+            "unknown_paths": list(self.unknown_paths),
             "evaluated_at": self.evaluated_at.isoformat(),
-            "python_warnings": self.python_warnings,
+            "python_warnings": list(self.python_warnings),
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class ContextTransition:
-    """
-    A detected capability-state change, per PRD §9.6.
+    """A meaningful change in one capability's evaluated status."""
 
-    A transition occurs when a capability's status changes between evaluations.
-    """
-
-    capability: str
-    current: CapabilityStatus
-    previous: CapabilityStatus | None = None  # None means first evaluation / UNKNOWN
+    capability: str = ""
+    current: CapabilityStatus = CapabilityStatus.UNKNOWN
+    previous: CapabilityStatus | None = None
     at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    snapshot_ref: str | None = None  # Optional reference to the generating snapshot
+    snapshot_ref: str | None = None
+    reasons: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def label(self) -> str:
-        prev = self.previous.value if self.previous else "NONE"
-        return f"{prev} → {self.current.value}"
+        previous = self.previous.value if self.previous is not None else "NONE"
+        return f"{previous} → {self.current.value}"
+
+    def to_dict(self, *, include_observed_values: bool = True) -> dict[str, Any]:
+        reasons: list[dict[str, Any]] = []
+        for reason in self.reasons:
+            serialized = dict(reason)
+            if not include_observed_values:
+                serialized.pop("observed", None)
+            reasons.append(serialized)
+        return {
+            "capability": self.capability,
+            "previous": self.previous.value if self.previous is not None else None,
+            "current": self.current.value,
+            "at": self.at.isoformat(),
+            "snapshot_ref": self.snapshot_ref,
+            "reasons": reasons,
+        }

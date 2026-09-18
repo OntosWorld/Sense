@@ -1,78 +1,72 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://sense-sdk.github.io/schemas/context-1.0.schema.json",
+  "$id": "https://github.com/OntosWorld/Sense/blob/main/schemas/context-1.0.schema.json",
   "title": "Sense Context Snapshot",
-  "description": "Serialized machine context produced by the Sense SDK. Language-neutral.",
+  "description": "Language-neutral machine context produced by the Sense SDK.",
   "version": "1.0",
   "type": "object",
-  "required": ["schema_version", "machine", "generated_at", "observations", "capabilities"],
+  "required": [
+    "schema_version",
+    "machine",
+    "generated_at",
+    "observations",
+    "capabilities"
+  ],
   "properties": {
     "schema_version": {
       "type": "string",
-      "const": "1.0",
-      "description": "Schema identifier. Must be '1.0' for this version."
+      "const": "1.0"
     },
     "machine": {
       "type": "object",
+      "required": ["ref", "peaq_did"],
       "properties": {
         "ref": {
-          "type": ["string", "null"],
-          "description": "Developer-assigned machine reference."
+          "type": ["string", "null"]
         },
         "peaq_did": {
-          "type": ["string", "null"],
-          "description": "Optional peaq decentralized identifier."
+          "type": ["string", "null"]
         }
-      }
+      },
+      "additionalProperties": false
     },
     "generated_at": {
       "type": "string",
-      "format": "date-time",
-      "description": "ISO 8601 generation timestamp (UTC)."
+      "format": "date-time"
     },
     "latest_observation_at": {
       "type": ["string", "null"],
-      "format": "date-time",
-      "description": "ISO 8601 timestamp of the most recent observation."
+      "format": "date-time"
     },
     "state": {
       "type": "object",
-      "description": "Flat map of path → current value for quick access.",
-      "additionalProperties": {}
+      "additionalProperties": true
     },
     "observations": {
       "type": "array",
-      "description": "List of all telemetry observations.",
       "items": {
         "type": "object",
         "required": ["path", "value", "observed_at"],
         "properties": {
           "path": {
             "type": "string",
-            "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*$",
-            "description": "Dot-notation telemetry path."
+            "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*$"
           },
-          "value": {
-            "description": "Observation value. May be any JSON type."
-          },
+          "value": {},
           "observed_at": {
             "type": "string",
-            "format": "date-time",
-            "description": "ISO 8601 timestamp of the observation."
+            "format": "date-time"
           },
           "received_at": {
             "type": "string",
-            "format": "date-time",
-            "description": "ISO 8601 timestamp when the SDK received the observation."
+            "format": "date-time"
           },
           "source": {
-            "type": "string",
-            "description": "Optional label identifying the observation source."
+            "type": "string"
           },
           "ttl_ms": {
-            "type": "number",
-            "minimum": 0,
-            "description": "Time-to-live in milliseconds; null means no expiry."
+            "type": "integer",
+            "minimum": 0
           }
         },
         "additionalProperties": false
@@ -80,35 +74,64 @@
     },
     "capabilities": {
       "type": "object",
-      "description": "Evaluated capability statuses keyed by capability name.",
       "additionalProperties": {
         "type": "object",
         "required": ["status", "reasons"],
         "properties": {
           "status": {
             "type": "string",
-            "enum": ["AVAILABLE", "DEGRADED", "UNAVAILABLE", "UNKNOWN"],
-            "description": "Capability status at generation time."
+            "enum": [
+              "AVAILABLE",
+              "DEGRADED",
+              "UNAVAILABLE",
+              "UNKNOWN"
+            ]
           },
           "reasons": {
             "type": "array",
-            "description": "Human-readable list of what passed or failed.",
             "items": {
               "type": "object",
+              "required": [
+                "code",
+                "severity",
+                "path",
+                "expected"
+              ],
               "properties": {
                 "code": {
+                  "type": "string"
+                },
+                "severity": {
                   "type": "string",
-                  "description": "Machine-readable reason code."
+                  "enum": ["blocking", "warning"]
                 },
                 "path": {
-                  "type": "string",
-                  "description": "Observation path this reason refers to."
+                  "type": "string"
                 },
-                "message": {
-                  "type": "string",
-                  "description": "Human-readable explanation."
+                "expected": {
+                  "type": "string"
+                },
+                "observed": {},
+                "observed_age_ms": {
+                  "type": ["integer", "null"]
+                },
+                "constraint_name": {
+                  "type": ["string", "null"]
+                },
+                "is_absent": {
+                  "type": "boolean"
+                },
+                "is_stale": {
+                  "type": "boolean"
                 }
-              }
+              },
+              "additionalProperties": false
+            }
+          },
+          "unknown_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           }
         },
@@ -116,8 +139,7 @@
       }
     },
     "trace_id": {
-      "type": ["string", "null"],
-      "description": "Optional distributed-trace identifier."
+      "type": ["string", "null"]
     }
   },
   "additionalProperties": false

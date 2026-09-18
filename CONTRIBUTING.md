@@ -1,64 +1,141 @@
 # Contributing to Sense
 
-Thank you for your interest in contributing to Sense!
+Sense is a local-first SDK for converting physical machine telemetry into current capability context.
 
-## Development Setup
+Changes should preserve that boundary.
 
-1. Clone the repository
-2. Install dependencies: `npm install`
-3. Run the build: `npm run build`
-4. Run tests: `npm test`
-5. Run type checking: `npm run typecheck`
-6. Run linting: `npm run lint`
-
-## Code Style
-
-We use Prettier for formatting and ESLint for linting. Configure your editor to use the project's `.prettierrc` settings.
-
-Run `npm run format` to format all code.
-
-## Commit Messages
-
-We follow the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification.
-
-Format: `<type>(<scope>): <description>`
-
-Types: `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`
-Scopes: `core`, `schema`, `state`, `rules`, `events`, `peaq`, `ros2`, `market`, `docs`, `ci`, `build`, `security`
-
-## Testing
-
-All new features must include tests. Run tests with:
+## Development setup
 
 ```bash
-npm test
+git clone https://github.com/OntosWorld/Sense.git
+cd Sense
+
+python -m venv .venv
+source .venv/bin/activate
+
+pip install -e ".[dev]"
 ```
 
-For watch mode during development:
+For peaq work:
 
 ```bash
-npm run test:watch
+pip install -e packages/Sense-peaq
 ```
 
-## Pull Request Process
+## Before changing an integration
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add or update tests
-5. Ensure all checks pass: `npm run validate`
-6. Submit a pull request
+Use the current official documentation.
 
-## Quality Gates
+For peaq:
 
-Every pull request must pass:
+https://docs.peaq.xyz/
 
-- TypeScript type checking
-- ESLint linting
-- Prettier formatting check
-- Unit tests
-- Package build
+For ROS 2:
 
-## License
+https://docs.ros.org/
 
-By contributing to Sense, you agree that your contributions will be licensed under the Apache-2.0 license.
+Do not invent an external API because a desired operation sounds plausible.
+
+If upstream behavior is unavailable or unclear, keep the adapter boundary explicit and document the limitation.
+
+## Quality checks
+
+Run:
+
+```bash
+ruff check src/ packages/
+ruff format --check src/ packages/
+mypy -p sense_ai
+
+pytest tests/unit/ -v
+pytest tests/contract/ -v
+pytest tests/integration/ -v
+
+pip install -e packages/Sense-peaq
+pytest tests/e2e/ -v
+
+python -m build
+```
+
+## Tests
+
+Add tests with behavior changes.
+
+Use:
+
+- `tests/unit/` for deterministic core behavior;
+- `tests/contract/` for schema/public serialization;
+- `tests/integration/` for multi-component local flows;
+- `tests/e2e/` for full adapter boundaries.
+
+Network-dependent peaq tests must not make normal PR checks flaky.
+
+## Conventional Commits
+
+Every commit must use Conventional Commits:
+
+```text
+<type>(<scope>): <description>
+```
+
+Examples:
+
+```text
+feat(rules): add numeric range constraint
+fix(core): re-evaluate snapshots after freshness expiry
+fix(peaq): publish transitions as activity events
+test(schema): cover structured telemetry values
+docs(ros2): clarify qos configuration
+ci(test): add package installation smoke test
+```
+
+Common types:
+
+```text
+feat
+fix
+docs
+test
+refactor
+perf
+build
+ci
+chore
+```
+
+Use `!` and a `BREAKING CHANGE:` footer for breaking public API changes.
+
+Keep each commit focused on one logical purpose.
+
+## Pull requests
+
+A PR should explain:
+
+- what changed;
+- why;
+- public API impact;
+- tests added/updated;
+- external documentation used for integrations;
+- anything intentionally left unverified.
+
+Do not claim a peaq operation was live-tested unless it was actually executed against a configured peaq environment.
+
+## Product boundaries
+
+Avoid adding unrelated platform features to the core.
+
+Sense should remain focused on:
+
+```text
+telemetry
+→ physical context
+→ freshness
+→ current capabilities/constraints
+→ explainable transitions
+```
+
+Network, blockchain, ROS 2, OEM and simulator support should stay behind adapters where practical.
+
+## Security
+
+Read [SECURITY.md](SECURITY.md) before changing telemetry publication, credentials, network integrations, or robot-facing code.

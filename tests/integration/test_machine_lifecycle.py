@@ -89,6 +89,7 @@ class TestMachineLifecycle:
         now = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
         m = ContextMachine()
         obs = m.observe("temp.celsius", 22.5, observed_at=now)
+        assert obs is not None
         assert obs.observed_at == now
         assert m.observations["temp.celsius"].value == 22.5
 
@@ -111,6 +112,7 @@ class TestMachineLifecycle:
             observed_at=datetime.now(timezone.utc),
         )
         stored = m.observe(obs)
+        assert stored is not None
         assert stored.path == "speed.mps"
         assert stored.value == 1.5
         assert m.observations["speed.mps"].value == 1.5
@@ -153,14 +155,15 @@ class TestMachineLifecycle:
         assert snap.schema_version == "1.0"
         assert "cap1" in snap.capabilities
 
-    def test_snapshot_idempotent(self) -> None:
-        """snapshot() is idempotent when nothing changes."""
+    def test_snapshot_re_evaluates_without_new_observations(self) -> None:
+        """snapshot() returns a new point-in-time result even without new input."""
         m = ContextMachine()
         m.define_capability(capability("c", requires=[equals("x", 1)]))
         m.observe("x", 1)
         s1 = m.snapshot()
         s2 = m.snapshot()
-        assert s1 is s2  # Same object returned
+        assert s2 is not s1
+        assert s2.capabilities["c"].status == CapabilityStatus.AVAILABLE
 
     def test_snapshot_not_idempotent_after_observe(self) -> None:
         """snapshot() returns a new object after new observations are added."""

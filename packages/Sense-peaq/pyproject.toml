@@ -4,20 +4,22 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sense-peaq"
-version = "1.0.0"
-description = "peaqOS adapter for Sense AI evaluation framework."
+version = "0.2.0"
+description = "Official peaqOS integration for the Sense machine context SDK."
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 requires-python = ">=3.10"
-dependencies = ["sense-ai>=1.0.0"]
+dependencies = [
+    "sense-ai>=0.2.0",
+    "peaq-os-sdk>=0.8.0",
+]
+
+[project.urls]
+Repository = "https://github.com/OntosWorld/Sense"
+Documentation = "https://github.com/OntosWorld/Sense/tree/main/packages/Sense-peaq"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+dev = ["pytest>=8.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sense_peaq"]
-
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-testpaths = ["tests"]
-pythonpath = ["src"]

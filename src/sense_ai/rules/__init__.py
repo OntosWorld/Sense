@@ -29,8 +29,9 @@ from __future__ import annotations
 import logging
 import operator
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Sequence
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from sense_ai.model.observation import TelemetryObservation
@@ -191,6 +192,21 @@ class Constraint(ABC):
             constraint_name=self._name,
         )
 
+    def _expired_outcome(self, store: ObservationStore) -> ConstraintOutcome:
+        """Return an unknown outcome when an observation exceeded its TTL."""
+        observation = store.get(self._path)
+        return ConstraintOutcome(
+            passed=False,
+            code=f"STALE_{self._path.upper().replace('.', '_')}",
+            path=self._path,
+            expected="<observation within ttl>",
+            observed=observation.value if observation is not None else None,
+            age_ms=observation.age_ms if observation is not None else None,
+            is_stale=True,
+            is_absent=False,
+            constraint_name=self._name,
+        )
+
     def blocking(self) -> Constraint:
         """Return a copy of this constraint with ``severity="blocking"``."""
         if self._severity == "blocking":
@@ -267,6 +283,9 @@ class Equals(Constraint):
             code = f"MISSING_{self._path.upper().replace('.', '_')}"
             return self._missing_outcome(store, code)
 
+        if not obs.is_available:
+            return self._expired_outcome(store)
+
         passed = obs.value == self._expected
         code = (
             f"{'PASS' if passed else 'FAIL'}_EQ_{self._path.upper().replace('.', '_')}"
@@ -320,6 +339,9 @@ class _ComparisonOp(Constraint):
             code = f"MISSING_{self._path.upper().replace('.', '_')}"
             return self._missing_outcome(store, code)
 
+        if not obs.is_available:
+            return self._expired_outcome(store)
+
         # Only numeric values support comparison
         if not isinstance(obs.value, (int, float)):
             return self._base_outcome(
@@ -331,7 +353,9 @@ class _ComparisonOp(Constraint):
 
         passed = self._op(obs.value, self._threshold)
         op_name = self.__class__.__name__.upper()
-        code = f"{'PASS' if passed else 'FAIL'}_{op_name}_{self._path.upper().replace('.', '_')}"
+        outcome = "PASS" if passed else "FAIL"
+        path_code = self._path.upper().replace(".", "_")
+        code = f"{outcome}_{op_name}_{path_code}"
         return self._base_outcome(
             store,
             passed=passed,
@@ -416,10 +440,15 @@ class Fresh(Constraint):
             code = f"MISSING_{self._path.upper().replace('.', '_')}"
             return self._missing_outcome(store, code)
 
+        if not obs.is_available:
+            return self._expired_outcome(store)
+
         age_ms = obs.age_ms
         is_stale = age_ms > self._max_age_ms
         passed = not is_stale
-        code = f"{'PASS' if passed else 'FAIL'}_FRESH_{self._path.upper().replace('.', '_')}"
+        outcome = "PASS" if passed else "FAIL"
+        path_code = self._path.upper().replace(".", "_")
+        code = f"{outcome}_FRESH_{path_code}"
         return self._base_outcome(
             store,
             passed=passed,
@@ -474,6 +503,9 @@ class In(Constraint):
             code = f"MISSING_{self._path.upper().replace('.', '_')}"
             return self._missing_outcome(store, code)
 
+        if not obs.is_available:
+            return self._expired_outcome(store)
+
         passed = obs.value in self._values
         code = (
             f"{'PASS' if passed else 'FAIL'}_IN_{self._path.upper().replace('.', '_')}"
@@ -509,6 +541,9 @@ class Exists(Constraint):
         if obs is None:
             code = f"MISSING_{self._path.upper().replace('.', '_')}"
             return self._missing_outcome(store, code)
+
+        if not obs.is_available:
+            return self._expired_outcome(store)
 
         return self._base_outcome(
             store,
@@ -562,8 +597,9 @@ class _Negated(Constraint):
 
     def evaluate(self, store: ObservationStore) -> ConstraintOutcome:
         inner = self._inner.evaluate(store)
+        unknown = inner.is_absent or inner.is_stale
         return ConstraintOutcome(
-            passed=not inner.passed,  # negated: passing inner means failing negated
+            passed=False if unknown else not inner.passed,
             code=f"NOT_{inner.code}",
             path=self._path,
             expected=f"NOT ({inner.expected})",
@@ -598,6 +634,7 @@ class _All(Constraint):
             len(self._constraints),
             sum(1 for o in outcomes if o.passed),
         )
+        failed = [outcome for outcome in outcomes if not outcome.passed]
         return ConstraintOutcome(
             passed=passed,
             code=code,
@@ -605,6 +642,8 @@ class _All(Constraint):
             expected=f"ALL({len(self._constraints)} constraints)",
             observed=[o.observed for o in outcomes],
             age_ms=None,
+            is_stale=any(outcome.is_stale for outcome in failed),
+            is_absent=any(outcome.is_absent for outcome in failed),
             constraint_name=self._name,
         )
 
@@ -631,6 +670,7 @@ class _Any(Constraint):
             len(self._constraints),
             sum(1 for o in outcomes if o.passed),
         )
+        failed = [outcome for outcome in outcomes if not outcome.passed]
         return ConstraintOutcome(
             passed=passed,
             code=code,
@@ -638,6 +678,8 @@ class _Any(Constraint):
             expected=f"ANY({len(self._constraints)} constraints)",
             observed=[o.observed for o in outcomes],
             age_ms=None,
+            is_stale=(not passed and any(outcome.is_stale for outcome in failed)),
+            is_absent=(not passed and any(outcome.is_absent for outcome in failed)),
             constraint_name=self._name,
         )
 
@@ -656,7 +698,11 @@ class _NoneOf(Constraint):
 
     def evaluate(self, store: ObservationStore) -> ConstraintOutcome:
         outcomes = [c.evaluate(store) for c in self._constraints]
-        passed = not any(o.passed for o in outcomes)
+        any_passed = any(outcome.passed for outcome in outcomes)
+        unknown = (not any_passed) and any(
+            outcome.is_absent or outcome.is_stale for outcome in outcomes
+        )
+        passed = not any_passed and not unknown
         code = f"{'PASS' if passed else 'FAIL'}_NONE_OF"
         return ConstraintOutcome(
             passed=passed,
@@ -665,6 +711,8 @@ class _NoneOf(Constraint):
             expected=f"NONE_OF({len(self._constraints)} constraints)",
             observed=[o.observed for o in outcomes],
             age_ms=None,
+            is_stale=unknown and any(outcome.is_stale for outcome in outcomes),
+            is_absent=unknown and any(outcome.is_absent for outcome in outcomes),
             constraint_name=self._name,
         )
 
@@ -683,7 +731,13 @@ class _OnlyOne(Constraint):
 
     def evaluate(self, store: ObservationStore) -> ConstraintOutcome:
         outcomes = [c.evaluate(store) for c in self._constraints]
-        passed = sum(1 for o in outcomes if o.passed) == 1
+        passed_count = sum(1 for outcome in outcomes if outcome.passed)
+        unknown_outcomes = [
+            outcome for outcome in outcomes if outcome.is_absent or outcome.is_stale
+        ]
+        definitely_failed = passed_count >= 2
+        unknown = bool(unknown_outcomes) and not definitely_failed
+        passed = passed_count == 1 and not unknown
         code = f"{'PASS' if passed else 'FAIL'}_ONLY_ONE"
         return ConstraintOutcome(
             passed=passed,
@@ -692,6 +746,9 @@ class _OnlyOne(Constraint):
             expected=f"ONLY_ONE({len(self._constraints)} constraints)",
             observed=[o.observed for o in outcomes],
             age_ms=None,
+            is_stale=unknown and any(outcome.is_stale for outcome in unknown_outcomes),
+            is_absent=unknown
+            and any(outcome.is_absent for outcome in unknown_outcomes),
             constraint_name=self._name,
         )
 

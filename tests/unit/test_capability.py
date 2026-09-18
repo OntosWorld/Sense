@@ -17,6 +17,7 @@ from sense_ai import (
     ANY,
     NONE_OF,
     NOT,
+    ONLY_ONE,
     ContextMachine,
     Equals,
     EventBus,
@@ -86,9 +87,9 @@ class TestTelemetryObservation:
         obs = _obs("x", value=1.0, age_ms=10000, ttl_ms=5000)
         assert obs.is_available is False
 
-    def test_is_available_false_when_absent(self) -> None:
+    def test_explicit_null_remains_available_evidence(self) -> None:
         obs = TelemetryObservation(path="x", value=None, observed_at=NOW)
-        assert obs.is_available is False
+        assert obs.is_available is True
 
     def test_serialization_roundtrip(self) -> None:
         obs = _obs("battery.voltage", value=12.4)
@@ -96,6 +97,20 @@ class TestTelemetryObservation:
         assert restored.path == obs.path
         assert restored.value == obs.value
         assert restored.ttl_ms == obs.ttl_ms
+        assert restored.received_at == obs.received_at
+
+    def test_structured_json_value_roundtrip(self) -> None:
+        value = {"x": 1.0, "y": 2.0, "covariance": [0.1, 0.2]}
+        obs = TelemetryObservation(path="localization.pose", value=value)
+        restored = TelemetryObservation.from_dict(obs.to_dict())
+        assert restored.value == value
+
+    def test_explicit_null_is_valid_telemetry(self) -> None:
+        m = _machine()
+        stored = m.observe("sensor.optional", None)
+        assert stored is not None
+        assert m.get_observation("sensor.optional") is stored
+        assert stored.value is None
 
     def test_too_old_beyond_ttl(self) -> None:
         obs = _obs("x", value=1.0, age_ms=99999, ttl_ms=1000)
@@ -156,6 +171,12 @@ class TestEquals:
         outcome = Equals("nonexistent", 0).evaluate({})
         assert outcome.passed is False
         assert outcome.is_absent is True
+
+    def test_expired_ttl_is_stale_unknown_evidence(self) -> None:
+        obs = _obs("x", value=1, age_ms=2000, ttl_ms=1000)
+        outcome = Equals("x", 1).evaluate({"x": obs})
+        assert outcome.passed is False
+        assert outcome.is_stale is True
 
 
 class TestGte:
@@ -219,6 +240,40 @@ class TestComposition:
         outcome = NONE_OF(Equals("x", 1), Equals("x", 2)).evaluate({"x": _obs("x", 3)})
         assert outcome.passed is True
 
+    def test_not_does_not_turn_missing_evidence_into_success(self) -> None:
+        outcome = NOT(Equals("missing", 1)).evaluate({})
+        assert outcome.passed is False
+        assert outcome.is_absent is True
+
+    def test_all_propagates_stale_evidence(self) -> None:
+        store = {
+            "a": _obs("a", 1, age_ms=5000, ttl_ms=1000),
+            "b": _obs("b", 2),
+        }
+        outcome = ALL(Equals("a", 1), Equals("b", 2)).evaluate(store)
+        assert outcome.passed is False
+        assert outcome.is_stale is True
+
+    def test_any_is_unknown_when_only_possible_match_is_missing(self) -> None:
+        store = {"a": _obs("a", 0)}
+        outcome = ANY(Equals("a", 1), Equals("b", 2)).evaluate(store)
+        assert outcome.passed is False
+        assert outcome.is_absent is True
+
+    def test_none_of_is_unknown_when_member_is_missing(self) -> None:
+        outcome = NONE_OF(Equals("a", 1), Equals("b", 2)).evaluate(
+            {"a": _obs("a", 0)}
+        )
+        assert outcome.passed is False
+        assert outcome.is_absent is True
+
+    def test_only_one_is_unknown_when_second_member_is_missing(self) -> None:
+        outcome = ONLY_ONE(Equals("a", 1), Equals("b", 2)).evaluate(
+            {"a": _obs("a", 1)}
+        )
+        assert outcome.passed is False
+        assert outcome.is_absent is True
+
 
 # ----------------------------------------------------------------------
 # ContextMachine — observe() and evaluate()
@@ -228,6 +283,7 @@ class TestContextMachine:
     def test_observe_stores_observation(self) -> None:
         m = _machine()
         obs = m.observe("speed", 120.0, source="sensor")
+        assert obs is not None
         assert obs.value == 120.0
         assert m.observations["speed"].value == 120.0
 
@@ -235,6 +291,7 @@ class TestContextMachine:
         m = _machine()
         t = _obs("temp", value=85.0, source="tm")
         stored = m.observe(t)
+        assert stored is not None
         assert stored.path == "temp"
         assert stored.value == 85.0
 
@@ -283,6 +340,15 @@ class TestContextMachine:
         result = m.evaluate("warn.cap")
         assert result.status == CapabilityStatus.DEGRADED
         assert len(result.warnings) == 1
+
+    def test_expired_ttl_on_value_constraint_is_unknown(self) -> None:
+        m = _machine()
+        m.define_capability(
+            capability("ttl.cap", requires=[Equals("x", 1)])
+        )
+        m.observe(_obs("x", value=1, age_ms=5000, ttl_ms=1000))
+        result = m.evaluate("ttl.cap")
+        assert result.status == CapabilityStatus.UNKNOWN
 
     def test_evaluate_stale_blocking_constraint_unknown(self) -> None:
         @capability(name="fresh.cap", version="1.0", requires=[Fresh("x", max_age_ms=1000)])
@@ -356,12 +422,12 @@ class TestSnapshot:
         assert m.last_snapshot is s2
         assert m.last_snapshot is not s1
 
-    def test_snapshot_is_idempotent_without_changes(self) -> None:
+    def test_snapshot_re_evaluates_without_changes(self) -> None:
         m = _machine()
         m.observe("x", 1.0)
         s1 = m.snapshot()
         s2 = m.snapshot()
-        assert s1 is s2  # Same object returned when nothing changed
+        assert s2 is not s1
 
 
 # ----------------------------------------------------------------------
