@@ -1,41 +1,92 @@
 # Security Policy
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
-If you discover a security vulnerability within Sense, please report it responsibly.
+Do not report security vulnerabilities through a public GitHub issue.
 
-**Please do not report security vulnerabilities through public GitHub issues.**
+Use GitHub private vulnerability reporting when available, or contact the maintainers privately.
 
-Instead, please report them via:
+Include:
 
-1. GitHub's private vulnerability reporting (if available)
-2. Email to the maintainers
+- affected version or commit;
+- reproduction steps;
+- expected and actual behavior;
+- likely impact;
+- any suggested mitigation.
 
-When reporting, please include:
+## Security boundaries
 
-- A description of the vulnerability
-- Steps to reproduce the issue
-- Potential impact of the vulnerability
-- Any suggested fixes (optional)
+### Core SDK
 
-## Security Guidelines
+The Sense core is local-first and does not require network access, blockchain credentials, or a hosted backend.
 
-### Private Keys and Secrets
+Capability evaluation must not directly actuate hardware. Applications remain responsible for control, safety, authorization, and functional-safety requirements.
 
-Sense **never** handles private keys or seed phrases. The peaq adapter accepts an already-configured official peaqOS client. The SDK does not provide key custody.
+### peaq credentials
 
-### Telemetry Privacy
+The `sense-peaq` package receives a configured official `PeaqosClient`.
 
-Raw machine telemetry remains local by default. Publishing to peaq is always opt-in and requires explicit developer configuration.
+Sense does not implement its own wallet or key store. Depending on how the peaq client is configured, signing may use environment-provided credentials or peaq-supported wallet mechanisms.
 
-### Input Validation
+Never log, serialize, commit, or include in telemetry:
 
-All telemetry observations are validated at the adapter boundary. Malformed data is rejected with typed errors and is never silently accepted into the normalized state store.
+- private keys;
+- seed phrases;
+- wallet exports;
+- API keys;
+- agent pairing tokens;
+- passwords or passphrases.
 
-### No Automatic Upload
+### Telemetry privacy
 
-The SDK does not upload telemetry automatically. Developers must explicitly configure and approve what data leaves the process.
+Raw machine telemetry stays local by default.
 
-### Local-First Core
+`ContextSnapshot.publishable_view()` removes raw observations unless paths are explicitly allowlisted.
 
-The core capability evaluation engine works without network access. Blockchain/network operations are never part of the local evaluation hot path.
+`PeaqContextPublisher.publish_snapshot()` also excludes observations by default and requires an explicit allowlist before raw evidence can be included.
+
+Applications should publish the smallest useful amount of context.
+
+### peaq event trust
+
+Sense defaults peaq Activity Events to the self-reported trust level.
+
+Sense must not label locally-derived context as on-chain-verifiable or hardware-signed unless the caller has the provenance required by peaq for that trust level.
+
+### Input validation
+
+Treat machine telemetry as untrusted input.
+
+Validate:
+
+- paths;
+- timestamps;
+- TTL values;
+- structured payload shape where the application has a domain schema;
+- adapter-specific message extraction.
+
+A missing or stale required observation must never result in `AVAILABLE`.
+
+### Network failure behavior
+
+The local capability engine must continue to function when peaq or any other network dependency is unavailable.
+
+Applications should decide explicitly whether a failed external publication should be retried. Do not blindly retry ambiguous blockchain writes.
+
+### ROS 2
+
+The ROS 2 adapter does not provide safety guarantees or ROS graph security.
+
+Use appropriate ROS 2/DDS security, network isolation, namespace policy, QoS, and topic permissions for the deployment.
+
+Do not allow arbitrary remote topic data to become trusted machine state without validation.
+
+## Dependency security
+
+CI runs dependency auditing alongside the normal test/build checks.
+
+Dependencies should be kept small, current, and isolated to optional adapters where possible.
+
+## Supported versions
+
+Sense is currently pre-1.0 software. Security fixes are applied to the actively developed branch and latest published pre-1.0 release.
