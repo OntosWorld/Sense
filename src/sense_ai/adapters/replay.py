@@ -29,9 +29,12 @@ class ReplayAdapter(MappedTelemetryAdapter):
         machine: Any,
         normalizer: TelemetryNormalizer,
         frames: Iterable[ReplayFrame],
+        *,
+        evaluate_after_frame: bool = False,
     ) -> None:
         super().__init__(machine, normalizer)
         self._frames = frames
+        self._evaluate_after_frame = evaluate_after_frame
         self._running = False
 
     def start(self) -> None:
@@ -55,6 +58,8 @@ class ReplayAdapter(MappedTelemetryAdapter):
                         source=frame.source,
                     )
                 )
+                if self._evaluate_after_frame:
+                    self.machine.evaluate_all()
         finally:
             self.stop()
         return results
