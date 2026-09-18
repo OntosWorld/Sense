@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
-from sense_ai.model.observation import JSONValue
+from sense_ai.model.observation import JSONValue, is_json_value
 
 TelemetryKind = Literal[
     "any",
@@ -19,6 +19,16 @@ TelemetryKind = Literal[
     "array",
     "null",
 ]
+_TELEMETRY_KINDS = {
+    "any",
+    "number",
+    "integer",
+    "string",
+    "boolean",
+    "object",
+    "array",
+    "null",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +72,7 @@ class TelemetryFieldSpec:
             )
 
         if self.kind != "any" and not _matches_kind(value, self.kind):
-            issues.append(
+            return (
                 TelemetryValidationIssue(
                     path=self.path,
                     code="INVALID_TYPE",
@@ -70,9 +80,8 @@ class TelemetryFieldSpec:
                         f"{self.path} expected {self.kind}, "
                         f"received {type(value).__name__}"
                     ),
-                )
+                ),
             )
-            return tuple(issues)
 
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             numeric = float(value)
@@ -105,12 +114,24 @@ class TelemetryFieldSpec:
         return tuple(issues)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TelemetryFieldSpec":
+    def from_dict(cls, data: dict[str, Any]) -> TelemetryFieldSpec:
+        raw_kind = str(data.get("kind", "any"))
+        if raw_kind not in _TELEMETRY_KINDS:
+            raise ValueError(f"unsupported telemetry kind: {raw_kind!r}")
+        kind = cast(TelemetryKind, raw_kind)
+
         enum_raw = data.get("enum")
-        enum = tuple(enum_raw) if isinstance(enum_raw, list) else None
+        enum: tuple[JSONValue, ...] | None = None
+        if enum_raw is not None:
+            if not isinstance(enum_raw, list):
+                raise ValueError("telemetry enum must be a list")
+            if not all(is_json_value(item) for item in enum_raw):
+                raise ValueError("telemetry enum values must be JSON-compatible")
+            enum = tuple(cast(JSONValue, item) for item in enum_raw)
+
         return cls(
             path=str(data["path"]),
-            kind=str(data.get("kind", "any")),  # type: ignore[arg-type]
+            kind=kind,
             nullable=bool(data.get("nullable", False)),
             minimum=_optional_float(data.get("minimum")),
             maximum=_optional_float(data.get("maximum")),
@@ -156,7 +177,9 @@ class TelemetrySchema:
         return tuple(self._fields)
 
     def validate(
-        self, path: str, value: JSONValue
+        self,
+        path: str,
+        value: JSONValue,
     ) -> tuple[TelemetryValidationIssue, ...]:
         spec = self.get(path)
         if spec is None:
@@ -172,18 +195,22 @@ class TelemetrySchema:
         return spec.validate(value)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TelemetrySchema":
+    def from_dict(cls, data: dict[str, Any]) -> TelemetrySchema:
         schema = cls(strict=bool(data.get("strict", False)))
         fields = data.get("fields", [])
         if not isinstance(fields, list):
             raise ValueError("telemetry schema fields must be a list")
         schema.define_many(
-            [TelemetryFieldSpec.from_dict(item) for item in fields if isinstance(item, dict)]
+            [
+                TelemetryFieldSpec.from_dict(item)
+                for item in fields
+                if isinstance(item, dict)
+            ]
         )
         return schema
 
     @classmethod
-    def from_json_file(cls, path: str | Path) -> "TelemetrySchema":
+    def from_json_file(cls, path: str | Path) -> TelemetrySchema:
         raw = json.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError("telemetry schema file must contain a JSON object")
