@@ -122,9 +122,7 @@ def _staleness(
     fresh = 0
     for observation in observations.values():
         threshold = (
-            observation.ttl_ms
-            if observation.ttl_ms is not None
-            else max_staleness_ms
+            observation.ttl_ms if observation.ttl_ms is not None else max_staleness_ms
         )
         if observation.age_ms <= threshold:
             fresh += 1
