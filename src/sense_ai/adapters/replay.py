@@ -62,7 +62,8 @@ class ReplayAdapter(MappedTelemetryAdapter):
                     evaluator = getattr(self.machine, "evaluate_all", None)
                     if not callable(evaluator):
                         raise TypeError(
-                            "evaluate_after_frame requires a machine with evaluate_all()"
+                            "evaluate_after_frame requires a machine "
+                            "with evaluate_all()"
                         )
                     evaluator()
         finally:
