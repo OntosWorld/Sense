@@ -45,7 +45,7 @@ Run:
 ```bash
 ruff check src/ packages/
 ruff format --check src/ packages/
-mypy src/
+mypy -p sense_ai
 
 pytest tests/unit/ -v
 pytest tests/contract/ -v
