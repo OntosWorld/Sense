@@ -1,34 +1,24 @@
-# Sense AI SDK — Quickstart
+# Sense Quickstart
 
-Get from installation to a working capability evaluation in under 5 minutes.
-
----
+This guide takes you from a clean checkout to a local capability evaluation and an optional peaq Activity Event.
 
 ## 1. Install
 
 ```bash
-# Core SDK only
-pip install sense-ai
+git clone https://github.com/OntosWorld/Sense.git
+cd Sense
 
-# Core + peaq adapter (on-chain publishing)
-pip install sense-ai[peaq]
+python -m venv .venv
+source .venv/bin/activate
 
-# Core + ROS 2 adapter
-pip install sense-ai[ros2]
-
-# All packages + dev tools
-pip install -e ".[dev]"
+pip install -e .
 ```
 
-Or install from source:
+For development:
 
 ```bash
-git clone https://github.com/your-org/sense-ai.git
-cd sense-ai
 pip install -e ".[dev]"
 ```
-
----
 
 ## 2. Create a machine
 
@@ -36,263 +26,285 @@ pip install -e ".[dev]"
 from sense_ai import ContextMachine
 
 machine = ContextMachine(
-    machine_ref="drone-001",
-    peaq_did="did:peaq:0x...",   # optional — needed only for on-chain publishing
+    machine_ref="robot-001",
 )
 ```
 
-A `ContextMachine` holds all telemetry observations and registered capabilities for one physical machine.
+A `ContextMachine` holds the current observations and capability definitions for one physical machine.
 
----
-
-## 3. Define capabilities with typed rules
+## 3. Define a capability
 
 ```python
-from sense_ai import capability, equals, gte, fresh
+from sense_ai import capability, equals, fresh, gte
 
 machine.define_capability(
     capability(
-        "delivery.ready",
+        "warehouse.pick",
         requires=[
-            equals("tool.gripper.available", True),    # value must be True
-            equals("safety.estop", False),              # value must be False
-            gte("battery.level_pct", 30),             # numeric ≥ threshold
-            fresh("localization.pose", max_age_ms=1000),  # no older than 1 second
+            equals("tool.gripper.available", True),
+            equals("safety.estop", False),
+            gte("battery.level_pct", 20),
+            fresh("localization.pose", max_age_ms=1000),
         ],
         degrade_when=[
-            gte("payload.utilization_pct", 90),        # triggers DEGRADED, not UNAVAILABLE
+            gte("payload.utilization_pct", 90),
         ],
     )
 )
 ```
 
-Rule primitives available:
+`requires` are mandatory conditions.
 
-| Rule | Meaning |
-|------|---------|
-| `equals(path, value)` | Exact value match |
-| `gte(path, n)`, `gt`, `lt`, `lte` | Numeric comparisons |
-| `in_(path, [a, b])` | Value in set |
-| `exists(path)` | Any value present |
-| `fresh(path, max_age_ms)` | Not older than `max_age_ms` |
-| `ALL(...)`, `ANY(...)`, `NOT(...)` | Logical composition |
+`degrade_when` rules describe degraded conditions. If one is active while mandatory requirements still pass, the capability becomes `DEGRADED`.
 
----
-
-## 4. Ingest telemetry
+## 4. Add telemetry
 
 ```python
 from datetime import datetime, timezone
+
+machine.observe("tool.gripper.available", True)
+machine.observe("safety.estop", False)
+machine.observe("battery.level_pct", 72)
+machine.observe(
+    "localization.pose",
+    {
+        "x": 1.0,
+        "y": 2.0,
+        "yaw": 0.15,
+    },
+    observed_at=datetime.now(timezone.utc),
+    ttl_ms=1500,
+    source="localization",
+)
+machine.observe("payload.utilization_pct", 42)
+```
+
+Sense supports JSON-compatible values, including nested objects and arrays.
+
+For transport-aware telemetry:
+
+```python
 from sense_ai import TelemetryObservation
 
-# Full object — for any value type
-machine.observe(TelemetryObservation(
+observation = TelemetryObservation(
     path="battery.level_pct",
     value=72,
     observed_at=datetime.now(timezone.utc),
+    received_at=datetime.now(timezone.utc),
     source="bms",
-    ttl_ms=5000,    # observation is valid for 5 seconds
-))
+    ttl_ms=5000,
+)
 
-# Shorthand for string / bool / number
-machine.observe("tool.gripper.available", True)
-machine.observe("safety.estop", False)
+machine.observe(observation)
 ```
-
-All telemetry is validated at the boundary and rejected with typed errors if malformed. Data stays local — nothing is sent over the network unless you explicitly publish.
-
----
 
 ## 5. Evaluate
 
 ```python
-result = machine.evaluate("delivery.ready")
-print(result.status)   # AVAILABLE | DEGRADED | UNAVAILABLE | UNKNOWN
-print(result.reasons)  # human-readable list of what passed / failed
-print(result.evidence) # which observations were used
-print(result.evaluated_at)  # datetime of evaluation
+result = machine.evaluate("warehouse.pick")
+
+print(result.status)
+
+for reason in result.reasons:
+    print(
+        reason.code,
+        reason.path,
+        reason.expected,
+        reason.observed,
+    )
 ```
 
-`result` is a `CapabilityResult` — it is JSON-serialisable and contains everything needed for logging, debugging, or publishing.
+Possible states:
 
----
+| State | Meaning |
+|---|---|
+| `AVAILABLE` | Required evidence is known and mandatory conditions pass. |
+| `DEGRADED` | Mandatory conditions pass, but a degradation condition is active. |
+| `UNAVAILABLE` | A mandatory condition has a concrete failure. |
+| `UNKNOWN` | Required evidence is missing or stale. |
 
-## 6. Get a serialisable snapshot
+Never treat `UNKNOWN` as `AVAILABLE`.
+
+## 6. Read current state
+
+Use:
+
+```python
+battery = machine.get_observation("battery.level_pct")
+
+if battery is not None:
+    print(battery.value)
+    print(battery.age_ms)
+```
+
+The older `machine.observe("battery.level_pct")` read form remains available for backward compatibility, but `get_observation()` is clearer.
+
+## 7. Create a snapshot
 
 ```python
 snapshot = machine.snapshot()
-print(snapshot.model_dump_json(indent=2))
+
+print(snapshot.to_json(indent=2))
 ```
 
-`ContextSnapshot` contains all capability statuses, the raw observations used, and metadata. It is the canonical input for the trust engine and the peaq adapter.
+Snapshots are always re-evaluated. This is important because telemetry can become stale even when no new observation arrives.
 
-### Data minimisation
+## 8. External/public snapshot
 
-Before publishing, you can strip sensitive fields:
+Raw telemetry remains local by default.
 
 ```python
-redacted = snapshot.redact(keep_paths={"battery.level_pct", "delivery.ready"})
-# Removes all paths except those explicitly listed
-
-local_only = snapshot.local_view()
-# Keeps everything — use for internal dashboards
-
 public = snapshot.publishable_view()
-# Keeps only capability names + statuses, no raw telemetry
+
+assert public.observations == {}
 ```
 
----
-
-## 7. Run the trust engine
-
-The trust engine produces a trustworthiness verdict alongside the capability evaluation:
+Explicitly allow fields when required:
 
 ```python
-from sense_ai.trust import compute_trust_report
-
-report = compute_trust_report(situation=snapshot)
-print(report.quality_band)    # TRUSTWORTHY | UNCERTAIN | UNTRUSTWORTHY
-print(report.overall_score)   # 0.0–1.0
-for dim in report.dimensions:
-    print(f"  {dim.name}: {dim.score:.2f} (weight {dim.weight})")
-print(f"Observations used: {report.observation_count}")
-```
-
-The trust engine is pure and deterministic — it runs entirely locally and has no network dependencies.
-
----
-
-## 8. Subscribe to status transitions
-
-React when a capability's status changes between evaluations:
-
-```python
-machine.on_transition(
-    "delivery.ready",
-    lambda t: print(f"[{t.timestamp}] delivery.ready: {t.previous_status} → {t.new_status}")
-)
-
-# Re-evaluate — triggers the callback only if status actually changed
-machine.evaluate("delivery.ready")
-```
-
----
-
-## 9. Publish to peaq (optional)
-
-Requires `pip install sense-ai[peaq]` and a pre-configured peaqOS client:
-
-```python
-from sense_peaq import PeaqContextPublisher, to_market_context
-
-publisher = PeaqContextPublisher(
-    rpc_endpoint="https://api.peaq.network",
-    peaq_client=my_peaq_client,  # supply your own peaqOS client instance
-)
-
-result = publisher.publish(snapshot)
-print(result.tx_hash)    # on-chain transaction hash
-print(result.block_num)  # block number on confirmation
-
-# Build a Machine Markets listing from the same snapshot
-listing = to_market_context(
-    snapshot,
-    owner_did=machine.peaq_did,
-    constraints=ListingConstraints(price_per_call_usd=0.001),
+public = snapshot.publishable_view(
+    keep_observations=[
+        "battery.level_pct",
+    ],
 )
 ```
 
-**No key custody.** The SDK never touches private keys. You supply an already-configured peaqOS client with the appropriate permissions.
-
----
-
-## 10. Handle stale data
-
-When an observation exceeds its TTL, the capability becomes `UNKNOWN` — no false positive is produced:
+## 9. Watch capability transitions
 
 ```python
-import time
-
-machine.observe("localization.pose", {"x": 1.0, "y": 2.0}, ttl_ms=1000)
-
-result = machine.evaluate("delivery.ready")  # AVAILABLE — pose is fresh
-time.sleep(1.5)                              # pose is now stale
-result = machine.evaluate("delivery.ready")  # UNKNOWN — freshness rule fails
+@machine.on_transition("warehouse.pick")
+def handle_transition(transition):
+    print(transition.label)
+    print(transition.reasons)
 ```
 
-The `fresh(path, max_age_ms)` rule is the primary tool for staleness handling. Set TTL values on your observations to match your sensor update rate.
-
----
-
-## Running the examples
-
-```bash
-git clone https://github.com/your-org/sense-ai.git
-cd sense-ai
-pip install -e "."
-
-# Minimal evaluation
-PYTHONPATH=src python examples/01_minimal/evaluate.py
-
-# Rules + logical composition
-PYTHONPATH=src python examples/02_with_rules/evaluate.py
-
-# Trust engine
-PYTHONPATH=src python examples/03_with_trust/evaluate.py
-
-# peaq DID publishing
-PYTHONPATH=src python examples/04_peaq/evaluate.py
-
-# ROS 2 integration
-PYTHONPATH=src python examples/05_ros2/evaluate.py
-```
-
----
-
-## Running the test suite
-
-```bash
-pytest tests/unit/          # unit tests — 95 tests
-pytest tests/contract/      # schema contract tests — 16 tests
-pytest tests/integration/   # integration tests — 34 tests
-pytest tests/e2e/          # end-to-end tests
-```
-
-All 9 CI gates run automatically on every push. See the CI configuration in `.github/workflows/ci.yml`.
-
----
-
-## Troubleshooting
-
-**`ImportError: cannot import name 'ContextMachine'`**
-
-Ensure `sense-ai` is installed and you are running from the correct Python environment:
-
-```bash
-pip show sense-ai
-python -c "from sense_ai import ContextMachine; print('OK')"
-```
-
-**Capability returns `UNKNOWN` even though all values look correct**
-
-Check two things:
-1. The observation's `ttl_ms` — if it has expired since ingestion, the value is treated as absent.
-2. The `fresh(path, max_age_ms)` rule — the observation must be younger than `max_age_ms` at evaluation time.
-
-**peaq publish raises `PeaqConfigurationError`**
-
-The `machine.peaq_did` must be set before calling `publish()`:
+Now change machine state:
 
 ```python
-machine = ContextMachine(machine_ref="robot-001", peaq_did="did:peaq:0x...")
+machine.observe("battery.level_pct", 10)
+machine.evaluate("warehouse.pick")
 ```
 
----
+The transition becomes similar to:
 
-## Next steps
+```text
+AVAILABLE → UNAVAILABLE
+```
 
-- [API Reference](https://github.com/your-org/sense-ai) — full API documentation
-- [`packages/Sense-peaq/README.md`](packages/Sense-peaq/README.md) — peaq adapter deep-dive
-- [`packages/Sense-ros2/README.md`](packages/Sense-ros2/README.md) — ROS 2 adapter
-- [`SECURITY.md`](SECURITY.md) — security policy and key-handling guidance
-- [`examples/`](examples/) — runnable examples for every feature
+## 10. Optional evidence-quality report
+
+```python
+from sense_ai import compute_evidence_quality
+
+snapshot = machine.snapshot()
+
+quality = compute_evidence_quality(
+    schema_version=snapshot.schema_version,
+    machine_id=snapshot.machine_ref or "",
+    observations=list(snapshot.observations.values()),
+)
+
+print(quality.quality_band)
+print(quality.overall_score)
+```
+
+This is an **evidence-quality metric**, not a machine trust rating and not a peaq event trust level.
+
+## 11. Optional peaq integration
+
+Install:
+
+```bash
+pip install -e packages/Sense-peaq
+```
+
+The adapter uses the official `peaq-os-sdk>=0.4.0`.
+
+Follow peaq's current environment configuration:
+
+https://docs.peaq.xyz/peaqos/install
+
+Then:
+
+```python
+from dotenv import load_dotenv
+from peaq_os_sdk import PeaqosClient
+from sense_peaq import PeaqEventPublisher
+
+load_dotenv()
+
+client = PeaqosClient.from_env()
+
+publisher = PeaqEventPublisher(
+    client,
+    machine_id=42,
+)
+
+transition = machine.last_transition("warehouse.pick")
+
+if transition is not None:
+    result = publisher.publish_transition(
+        transition,
+        snapshot=machine.snapshot().publishable_view(),
+    )
+    print(result.tx_hash)
+    print(result.data_hash_hex)
+```
+
+Sense publishes the selected transition as a peaq **Activity Event**.
+
+By default:
+
+```text
+trust_level = 0
+source_chain_id = 0
+```
+
+because local physical context is self-reported/off-chain unless stronger provenance actually exists.
+
+## 12. Machine Markets
+
+Set `PEAQOS_ORCHESTRATION_URL` before creating the peaq client. peaq's canonical endpoint is currently documented as:
+
+```text
+https://orchestration.peaq.xyz
+```
+
+Then:
+
+```python
+from sense_peaq import MachineMarketsAdapter, to_market_context
+
+markets = MachineMarketsAdapter(client)
+
+machines = markets.list_machines(limit=20)
+services = markets.list_market_services(limit=20)
+
+sense_context = to_market_context(machine.snapshot())
+```
+
+For `search_market()`, construct the request using the types provided by the current `peaq-os-sdk`.
+
+Sense does not create its own Machine Markets listing protocol.
+
+## 13. Run tests
+
+```bash
+pytest tests/unit/ -v
+pytest tests/contract/ -v
+pytest tests/integration/ -v
+
+pip install -e packages/Sense-peaq
+pytest tests/e2e/ -v
+
+ruff check src/ packages/
+ruff format --check src/ packages/
+mypy src/
+```
+
+## Next
+
+- [Capability guide](docs/Capability-Guide.md)
+- [peaq adapter](packages/Sense-peaq/README.md)
+- [ROS 2 adapter](packages/Sense-ros2/README.md)
+- [Security](SECURITY.md)
