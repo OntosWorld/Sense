@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
-from sense_ai.model.observation import JSONValue
+from sense_ai.model.observation import JSONValue, is_json_value
 
 TransformCallable = Callable[[JSONValue, Mapping[str, Any]], JSONValue]
 
@@ -19,14 +19,14 @@ class TransformSpec:
     params: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_value(cls, value: str | dict[str, Any]) -> "TransformSpec":
+    def from_value(cls, value: str | dict[str, Any]) -> TransformSpec:
         if isinstance(value, str):
             return cls(name=value)
-        if not isinstance(value, dict) or "name" not in value:
+        if "name" not in value:
             raise ValueError("transform must be a name or an object with a name")
         return cls(
             name=str(value["name"]),
-            params={str(k): v for k, v in value.items() if k != "name"},
+            params={str(key): item for key, item in value.items() if key != "name"},
         )
 
 
@@ -65,13 +65,18 @@ class TransformRegistry:
         self.register("round", _round_value)
 
 
-DEFAULT_TRANSFORMS = TransformRegistry()
-
-
 def _number(value: JSONValue) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"expected numeric telemetry, got {type(value).__name__}")
     return float(value)
+
+
+def _json_value(value: Any) -> JSONValue:
+    if not is_json_value(value):
+        raise ValueError(
+            f"transform produced non-JSON value: {type(value).__name__}"
+        )
+    return cast(JSONValue, value)
 
 
 def _identity(value: JSONValue, params: Mapping[str, Any]) -> JSONValue:
@@ -112,10 +117,9 @@ def _enum_map(value: JSONValue, params: Mapping[str, Any]) -> JSONValue:
     key = str(value)
     if key not in mapping:
         if "default" in params:
-            return params["default"]
+            return _json_value(params["default"])
         raise ValueError(f"no enum mapping for {value!r}")
-    mapped = mapping[key]
-    return mapped  # type: ignore[return-value]
+    return _json_value(mapping[key])
 
 
 def _map_range(value: JSONValue, params: Mapping[str, Any]) -> JSONValue:
@@ -133,3 +137,6 @@ def _map_range(value: JSONValue, params: Mapping[str, Any]) -> JSONValue:
 def _round_value(value: JSONValue, params: Mapping[str, Any]) -> JSONValue:
     digits = int(params.get("digits", 0))
     return round(_number(value), digits)
+
+
+DEFAULT_TRANSFORMS = TransformRegistry()
