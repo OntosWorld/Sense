@@ -166,29 +166,32 @@ jobs:
 
   ros2-runtime:
     name: ROS 2 Jazzy runtime
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install ROS 2 Jazzy
-        uses: ros-tooling/setup-ros@v0.7
-        with:
-          required-ros-distributions: jazzy
-
-      - name: Create Python environment
-        shell: bash
-        run: |
-          source /opt/ros/jazzy/setup.bash
-          python3 -m venv --system-site-packages /tmp/sense-ros
-          /tmp/sense-ros/bin/python -m pip install --upgrade pip
-          /tmp/sense-ros/bin/pip install -e ".[dev]"
-          /tmp/sense-ros/bin/pip install -e packages/Sense-ros2
 
       - name: Run real ROS 2 DDS bridge test
         shell: bash
         run: |
-          source /opt/ros/jazzy/setup.bash
-          /tmp/sense-ros/bin/pytest packages/Sense-ros2/tests/test_runtime_ros2.py -v
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            -w /workspace \
+            ros:jazzy-ros-base \
+            bash -lc '
+              set -euo pipefail
+              apt-get update
+              DEBIAN_FRONTEND=noninteractive apt-get install -y \
+                python3-pip \
+                python3-venv \
+                ros-jazzy-std-msgs
+              source /opt/ros/jazzy/setup.bash
+              python3 -m venv --system-site-packages /tmp/sense-ros
+              /tmp/sense-ros/bin/python -m pip install --upgrade pip
+              /tmp/sense-ros/bin/pip install -e ".[dev]"
+              /tmp/sense-ros/bin/pip install -e packages/Sense-ros2
+              /tmp/sense-ros/bin/pytest \
+                packages/Sense-ros2/tests/test_runtime_ros2.py -v
+            '
 
   schema-validation:
     name: JSON schema validation
