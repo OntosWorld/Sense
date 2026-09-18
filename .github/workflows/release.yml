@@ -71,21 +71,29 @@ jobs:
           path: dist/${{ matrix.name }}/
 
   publish:
-    name: Publish to PyPI
+    name: Publish ${{ matrix.name }} to PyPI
     if: github.event_name == 'release'
     needs: build
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        name:
+          - sense-ai
+          - sense-peaq
+          - sense-ros2
+          - sense-mqtt
+          - sense-http
     environment:
       name: pypi
-      url: https://pypi.org/p/sense-ai
+      url: https://pypi.org/p/${{ matrix.name }}
     permissions:
       id-token: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: dist-*
+          name: dist-${{ matrix.name }}
           path: dist
-          merge-multiple: true
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
