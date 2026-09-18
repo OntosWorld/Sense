@@ -41,7 +41,12 @@ def test_configured_raw_pipeline_reaches_expected_states() -> None:
         ),
     ]
 
-    adapter = ReplayAdapter(machine, config.normalizer, frames)
+    adapter = ReplayAdapter(
+        machine,
+        config.normalizer,
+        frames,
+        evaluate_after_frame=True,
+    )
 
     states = []
     @machine.on_transition("warehouse.pick")
