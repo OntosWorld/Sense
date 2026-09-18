@@ -61,9 +61,7 @@ class EventProvenance:
                     "(peaq) or 8453 (Base)"
                 )
             if self.source_tx_hash in (None, "", b""):
-                raise PeaqConfigurationError(
-                    "trust level 1 requires source_tx_hash"
-                )
+                raise PeaqConfigurationError("trust level 1 requires source_tx_hash")
             return
 
         if self.trust_level == 2:
@@ -75,7 +73,7 @@ class EventProvenance:
         raise PeaqConfigurationError("trust_level must be 0, 1, or 2")
 
     @classmethod
-    def self_reported(cls) -> "EventProvenance":
+    def self_reported(cls) -> EventProvenance:
         return cls()
 
     @classmethod
@@ -84,7 +82,7 @@ class EventProvenance:
         *,
         source_chain_id: int,
         source_tx_hash: str | bytes,
-    ) -> "EventProvenance":
+    ) -> EventProvenance:
         return cls(
             trust_level=1,
             source_chain_id=source_chain_id,
@@ -119,9 +117,7 @@ class PeaqEventPublisher:
 
         self._client = client
         self._machine_id = machine_id
-        self._default_provenance = (
-            default_provenance or EventProvenance.self_reported()
-        )
+        self._default_provenance = default_provenance or EventProvenance.self_reported()
 
     @property
     def machine_id(self) -> int:
