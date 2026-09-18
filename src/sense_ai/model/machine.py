@@ -122,7 +122,6 @@ class ContextMachine:
         "_capabilities",
         "_last_result",
         "_last_snapshot",
-        "_last_snapshot_obs_count",
         "_transitions",
         "_transition_handlers",
         "_event_bus",
@@ -148,7 +147,6 @@ class ContextMachine:
         self._event_bus: EventBus | None = event_bus
         self._warnings: list[str] = []  # warnings emitted by Python capability fns
         self._obs_count = 0
-        self._last_snapshot_obs_count: int | None = None
 
     # -------------------------------------------------------------------------
     # warn() — emit a warning from within a Python capability function
@@ -219,10 +217,14 @@ class ContextMachine:
         path_or_obs : str | TelemetryObservation
             Dot-notation key, e.g. ``"battery.level_pct"``, or an existing
             observation object.
-        value : float | str | bool
-            The observed value (required when ``path_or_obs`` is a str).
+        value : JsonValue
+            JSON-compatible observed value. If omitted, the legacy read overload
+            returns the current observation at the path. Prefer get_observation()
+            for reads.
         observed_at : datetime, optional
-            When the value was observed.  Defaults to UTC now.
+            When the source observed the value. Defaults to UTC now.
+        received_at : datetime, optional
+            When Sense received the value. Defaults to UTC now.
         source : str, optional
             Originating sensor or adapter identifier.
         ttl_ms : int, optional
@@ -303,15 +305,12 @@ class ContextMachine:
 
         Status logic (PRD §9.4):
 
-        - **UNAVAILABLE**: at least one blocking constraint (``requires``) failed.
-          Failures due to absent/stale data are still UNAVAILABLE for blocking
-          constraints.
-        - **UNKNOWN**: a blocking constraint's observation path is absent OR
-          a ``Fresh`` constraint is violated (stale).  This means we cannot
-          safely conclude the machine is unavailable — we simply don't know.
-        - **DEGRADED**: all blocking constraints pass (or resolve to UNKNOWN
-          without blocking), and at least one warning constraint
-          (``degrade_when``) failed.
+        - **UNAVAILABLE**: at least one blocking constraint fails with concrete
+          current evidence.
+        - **UNKNOWN**: a blocking constraint depends on missing or stale evidence,
+          so Sense cannot make a safe determination.
+        - **DEGRADED**: all blocking constraints pass and at least one
+          developer-defined degradation condition is active.
         - **AVAILABLE**: all blocking constraints pass, no warnings failed.
 
         Parameters
