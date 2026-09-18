@@ -99,7 +99,9 @@ class Ros2SenseBridge:
         raw = data.get("topics", [])
         if not isinstance(raw, list):
             raise ValueError("ROS mapping config topics must be a list")
-        mappings = [RosTopicMapping.from_dict(item) for item in raw if isinstance(item, dict)]
+        mappings = [
+            RosTopicMapping.from_dict(item) for item in raw if isinstance(item, dict)
+        ]
         return cls(client, machine, mappings)
 
     @classmethod
