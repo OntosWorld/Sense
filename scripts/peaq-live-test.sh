@@ -46,20 +46,23 @@ PY
 
 say "1/7  Preparing Sense repository"
 
-if [ -d "$TARGET_DIR/.git" ]; then
+if git rev-parse --show-toplevel >/dev/null 2>&1; then
+  REPO_ROOT="$(git rev-parse --show-toplevel)"
+  cd "$REPO_ROOT"
+elif [ -d "$TARGET_DIR/.git" ]; then
   cd "$TARGET_DIR"
-
-  if ! git diff --quiet || ! git diff --cached --quiet; then
-    die "Existing $TARGET_DIR checkout has uncommitted changes. Commit/stash them first."
-  fi
-
-  git fetch origin "$BRANCH"
-  git checkout "$BRANCH"
-  git pull --ff-only origin "$BRANCH"
 else
   git clone --branch "$BRANCH" --single-branch "$REPO_URL" "$TARGET_DIR"
   cd "$TARGET_DIR"
 fi
+
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  die "Sense checkout has uncommitted changes. Commit/stash them first."
+fi
+
+git fetch origin "$BRANCH"
+git checkout "$BRANCH"
+git pull --ff-only origin "$BRANCH"
 
 CURRENT_BRANCH="$(git branch --show-current)"
 [ "$CURRENT_BRANCH" = "$BRANCH" ] || die "Expected branch $BRANCH, got $CURRENT_BRANCH."
