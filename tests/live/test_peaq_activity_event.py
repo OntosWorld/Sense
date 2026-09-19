@@ -49,5 +49,8 @@ def test_live_peaq_activity_event() -> None:
         metadata={"verification": "sense-live-test"},
     )
 
+    print(f"Transaction hash: {result.tx_hash}")
+    print(f"Data hash: {result.data_hash_hex}")
+
     assert result.tx_hash
     assert result.data_hash
