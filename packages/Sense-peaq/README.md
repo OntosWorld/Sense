@@ -26,6 +26,48 @@ Requirements:
 - `sense-ai>=0.3.0`
 - `peaq-os-sdk>=0.8.0`
 
+## One-command live verification
+
+For an already configured peaq wallet and machine ID, the complete live check is:
+
+```bash
+sense-peaq verify-live
+```
+
+The command:
+
+- loads the user's normal peaqOS SDK environment;
+- creates `PeaqosClient.from_env()`;
+- displays the signer address, RPC, deployment, and machine ID;
+- builds and validates a real Sense capability transition locally;
+- asks for confirmation before spending gas;
+- submits one real peaq Activity Event;
+- prints the transaction hash and data hash.
+
+The private key is never accepted as a Sense CLI argument and is never printed by
+Sense. Wallet configuration remains owned by the official peaqOS SDK.
+
+Pass a machine ID directly when desired:
+
+```bash
+sense-peaq verify-live --machine-id 42
+```
+
+For automated/dev environments where transaction approval is already handled:
+
+```bash
+sense-peaq verify-live --machine-id 42 --yes
+```
+
+From a fresh checkout, the repository helper automates setup, local wallet
+creation, funding verification, wallet-free checks, and the same live command:
+
+```bash
+git clone --branch fix/sdk-alignment-peaq --single-branch https://github.com/OntosWorld/Sense.git \
+  && cd Sense \
+  && bash scripts/peaq-live-test.sh
+```
+
 ## Activity Events
 
 ```python
