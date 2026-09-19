@@ -10,6 +10,31 @@ cd Sense
 pip install -e ".[dev]"
 ```
 
+### Fastest peaq live-test path
+
+If your goal is to verify Sense against peaq from a fresh machine, use:
+
+```bash
+git clone --branch fix/sdk-alignment-peaq --single-branch https://github.com/OntosWorld/Sense.git \
+  && cd Sense \
+  && bash scripts/peaq-live-test.sh
+```
+
+That helper handles the local environment, installs Sense and `sense-peaq`,
+creates a throwaway test wallet, protects `.env`, shows the wallet address to
+fund, checks the balance, asks for the machine ID, runs wallet-free peaq checks,
+and then executes the live verification.
+
+If you already have your own peaq wallet/client configured, you only need:
+
+```bash
+pip install sense-peaq
+sense-peaq verify-live --machine-id 42
+```
+
+Sense never takes the private key as a command-line argument. Wallet
+configuration remains with the official peaqOS SDK.
+
 ## 1. Define canonical telemetry and raw mappings
 
 ```python
@@ -207,13 +232,51 @@ See [sense-http](packages/Sense-http/README.md).
 
 ## 9. Optional peaq Activity Event
 
-Install:
+Install the adapter:
 
 ```bash
 pip install -e packages/Sense-peaq
 ```
 
-Then:
+### One-command live verification
+
+Configure your wallet using the normal peaqOS SDK configuration, then run:
+
+```bash
+sense-peaq verify-live --machine-id 42
+```
+
+Or set the machine ID in the environment:
+
+```bash
+export SENSE_PEAQ_MACHINE_ID=42
+sense-peaq verify-live
+```
+
+The command performs:
+
+```text
+PeaqosClient.from_env()
+        ↓
+wallet / network / machine ID preflight
+        ↓
+Sense capability transition
+        ↓
+confirmation before gas spend
+        ↓
+PeaqEventPublisher
+        ↓
+PeaqosClient.submit_event()
+        ↓
+transaction hash + data hash
+```
+
+Sense never receives the private key directly. The official peaqOS client owns
+wallet configuration and transaction signing.
+
+### Programmatic use
+
+Applications can still publish directly:
 
 ```python
 from peaq_os_sdk import PeaqosClient
@@ -232,9 +295,11 @@ if transition is not None:
     print(receipt.tx_hash)
 ```
 
-The default event is self-reported/off-chain. Higher provenance requires real supporting evidence.
+The default event is self-reported/off-chain. Higher provenance requires real
+supporting evidence.
 
-For a real network verification flow, see [tests/live/README.md](tests/live/README.md).
+For low-level live-test details, see
+[tests/live/README.md](tests/live/README.md).
 
 ## 10. Machine Markets runtime gating
 
