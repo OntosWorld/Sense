@@ -217,7 +217,7 @@ say "6/7  Running wallet-free peaq checks"
 python -m pytest tests/e2e/test_peaq_integration.py -v
 
 say "7/7  Submitting the real Sense Activity Event"
-python -m pytest tests/live/test_peaq_activity_event.py -v -s
+sense-peaq verify-live --machine-id "$MACHINE_ID" --yes
 
 say "Done."
 printf '%s\n' "Wallet: $WALLET_ADDRESS"
