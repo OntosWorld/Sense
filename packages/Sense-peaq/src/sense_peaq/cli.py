@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from typing import Sequence
+from collections.abc import Sequence
 
 from sense_ai import ContextMachine, capability, gte
 
@@ -66,7 +66,9 @@ def _verify_live(args: argparse.Namespace) -> int:
 
     wallet_address = getattr(client, "address", None)
     rpc_url = os.getenv("PEAQOS_RPC_URL", "(configured by peaq client)")
-    deployment_id = os.getenv("TOKENOMICS_DEPLOYMENT_ID", "(default/legacy configuration)")
+    deployment_id = os.getenv(
+        "TOKENOMICS_DEPLOYMENT_ID", "(default/legacy configuration)"
+    )
 
     print("peaq client loaded")
     print(f"wallet address: {wallet_address or '(not exposed by client)'}")
@@ -86,10 +88,14 @@ def _verify_live(args: argparse.Namespace) -> int:
 
     if not args.yes:
         try:
-            answer = input(
-                "This will submit a real peaq Activity Event and may spend gas. "
-                "Continue? [y/N]: "
-            ).strip().lower()
+            answer = (
+                input(
+                    "This will submit a real peaq Activity Event and may spend gas. "
+                    "Continue? [y/N]: "
+                )
+                .strip()
+                .lower()
+            )
         except EOFError:
             answer = ""
 
