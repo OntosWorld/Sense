@@ -12,7 +12,11 @@ requires-python = ">=3.10"
 dependencies = [
     "sense-ai>=0.3.0",
     "peaq-os-sdk>=0.8.0",
+    "python-dotenv>=1.0",
 ]
+
+[project.scripts]
+sense-peaq = "sense_peaq.cli:main"
 
 [project.urls]
 Repository = "https://github.com/OntosWorld/Sense"
