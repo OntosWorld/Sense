@@ -89,6 +89,61 @@ pip install -e packages/Sense-http
 
 Python 3.10+ is supported.
 
+## Fast peaq verification
+
+If your peaq wallet/client is already configured using the normal peaqOS SDK
+environment, live verification is one command:
+
+```bash
+sense-peaq verify-live --machine-id 42
+```
+
+Or set the machine ID once:
+
+```bash
+export SENSE_PEAQ_MACHINE_ID=42
+sense-peaq verify-live
+```
+
+The command:
+
+```text
+load user's peaq configuration
+        ↓
+create PeaqosClient
+        ↓
+show wallet / network / machine ID
+        ↓
+build a Sense capability transition
+        ↓
+local preflight
+        ↓
+ask before spending gas
+        ↓
+submit real peaq Activity Event
+        ↓
+print transaction hash + data hash
+```
+
+Sense does **not** accept a private key as a CLI argument and does not manage
+wallet custody. The user configures their wallet through the official peaqOS
+SDK; Sense receives the configured client.
+
+For a completely fresh local test environment, including a throwaway wallet,
+dependency setup, balance check, machine ID prompt, wallet-free tests, and the
+same live verification command:
+
+```bash
+git clone --branch fix/sdk-alignment-peaq --single-branch https://github.com/OntosWorld/Sense.git \
+  && cd Sense \
+  && bash scripts/peaq-live-test.sh
+```
+
+The helper pauses only when you need to fund the displayed test wallet and enter
+the machine ID.
+
+See [QUICKSTART.md](QUICKSTART.md) for the full SDK path.
+
 ## Complete configured pipeline
 
 A single configuration can define canonical telemetry, raw mappings, transforms, and reusable capabilities:
@@ -333,11 +388,24 @@ This lets an application use live physical state while leaving peaq's own market
 
 ## Live peaq verification
 
-Mocked SDK contract tests run in normal CI.
+Normal users do not need to run the repository test suite manually.
 
-A real Activity Event test is available under `tests/live/` and only runs when explicitly enabled with credentials and a machine ID.
+With the user's standard peaqOS wallet configuration already available:
 
-See [tests/live/README.md](tests/live/README.md).
+```bash
+sense-peaq verify-live --machine-id 42
+```
+
+This performs the client preflight, builds a real Sense capability transition,
+asks for confirmation before the transaction, submits the Activity Event, and
+prints the transaction and data hashes.
+
+For CI/development, deterministic mocked peaq integration tests remain under
+`tests/e2e/`, while the low-level opt-in network test remains under
+`tests/live/`.
+
+See [sense-peaq](packages/Sense-peaq/README.md) and
+[tests/live/README.md](tests/live/README.md).
 
 ## Evidence quality
 
