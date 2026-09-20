@@ -1,7 +1,8 @@
-# Release 0.3.0
+# Planned release 0.3.0
 
-Sense 0.3.0 is the first release containing the complete raw-telemetry
-ingestion pipeline and the ROS 2, MQTT, HTTP, and peaq adapters.
+Sense has not yet been published on PyPI. Version 0.3.0 is the planned first
+public package release containing the complete raw-telemetry ingestion pipeline
+and the ROS 2, MQTT, HTTP, and peaq adapters.
 
 ## Preconditions
 
@@ -46,7 +47,8 @@ workflow dispatch is build-only and cannot publish packages accidentally.
 
 ## Post-release verification
 
-After the release workflow succeeds:
+These commands are intentionally not part of the current Quickstart. After the
+release workflow succeeds and the packages are visible on PyPI:
 
 ```bash
 python -m venv /tmp/sense-release-check

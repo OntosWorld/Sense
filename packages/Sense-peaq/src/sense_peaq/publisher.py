@@ -7,6 +7,7 @@ peaq's official Python SDK. Sense never handles private keys.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -169,7 +170,10 @@ class PeaqEventPublisher:
                 event_type=EVENT_TYPE_ACTIVITY,
                 value=value,
                 currency="",
-                timestamp=max(1, int(transition.at.timestamp())),
+                timestamp=_safe_event_timestamp(
+                    self._client,
+                    max(1, int(transition.at.timestamp())),
+                ),
                 raw_data=raw_data,
                 trust_level=selected_provenance.trust_level,
                 source_chain_id=selected_provenance.source_chain_id,
@@ -235,6 +239,24 @@ def _looks_retryable(exc: Exception) -> bool:
         "insufficient",
     )
     return not any(token in text for token in permanent)
+
+
+def _safe_event_timestamp(client: PeaqEventClient, proposed: int) -> int:
+    """Clamp a wall-clock timestamp to the latest EVM block when available."""
+    for attribute in ("web3", "w3"):
+        transport = getattr(client, attribute, None)
+        eth = getattr(transport, "eth", None)
+        if eth is None:
+            continue
+        try:
+            block = eth.get_block("latest")
+        except Exception:
+            continue
+        if isinstance(block, Mapping):
+            chain_timestamp = block.get("timestamp")
+            if isinstance(chain_timestamp, int) and chain_timestamp > 0:
+                return min(proposed, chain_timestamp)
+    return proposed
 
 
 PeaqContextPublisher = PeaqEventPublisher

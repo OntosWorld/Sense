@@ -81,8 +81,7 @@ class TestPeaqActivityEvents:
         assert payload["transition"]["capability"] == "warehouse.pick"
         assert payload["transition"]["current"] == "UNAVAILABLE"
         assert all(
-            "observed" not in reason
-            for reason in payload["transition"]["reasons"]
+            "observed" not in reason for reason in payload["transition"]["reasons"]
         )
 
     def test_transition_observed_values_require_explicit_opt_in(
@@ -105,10 +104,24 @@ class TestPeaqActivityEvents:
         payload = json.loads(
             client.submit_event.call_args.kwargs["raw_data"].decode("utf-8")
         )
-        assert any(
-            "observed" in reason
-            for reason in payload["transition"]["reasons"]
-        )
+        assert any("observed" in reason for reason in payload["transition"]["reasons"])
+
+    def test_future_wall_clock_is_clamped_to_latest_chain_block(
+        self, peaq_constants: None
+    ) -> None:
+        from sense_peaq import PeaqEventPublisher
+
+        machine = _transitioning_machine()
+        transition = machine.last_transition()
+        assert transition is not None
+
+        client = MagicMock()
+        client.web3.eth.get_block.return_value = {"timestamp": 123}
+        client.submit_event.return_value = ("0xtx", bytes.fromhex("44" * 32))
+
+        PeaqEventPublisher(client, machine_id=1).publish_transition(transition)
+
+        assert client.submit_event.call_args.kwargs["timestamp"] == 123
 
     def test_onchain_provenance_requires_transaction_hash(self) -> None:
         from sense_peaq import EventProvenance
@@ -116,9 +129,7 @@ class TestPeaqActivityEvents:
         with pytest.raises(PeaqConfigurationError):
             EventProvenance(trust_level=1, source_chain_id=3338)
 
-    def test_onchain_provenance_is_forwarded_to_sdk(
-        self, peaq_constants: None
-    ) -> None:
+    def test_onchain_provenance_is_forwarded_to_sdk(self, peaq_constants: None) -> None:
         from sense_peaq import EventProvenance, PeaqEventPublisher
 
         machine = _transitioning_machine()
@@ -146,7 +157,9 @@ class TestPeaqActivityEvents:
         with pytest.raises(UnsupportedPeaqFlowError):
             EventProvenance(trust_level=2)
 
-    def test_sdk_failure_becomes_typed_network_error(self, peaq_constants: None) -> None:
+    def test_sdk_failure_becomes_typed_network_error(
+        self, peaq_constants: None
+    ) -> None:
         from sense_peaq import PeaqEventPublisher
 
         machine = _transitioning_machine()

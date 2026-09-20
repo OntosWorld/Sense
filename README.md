@@ -28,9 +28,11 @@ Sense answers:
 
 ## Status
 
-Current pre-1.0 release: **0.3.0**
+Current source version: **0.3.0-dev**
 
-The public API is usable, but pre-1.0 while adapter and ecosystem integration matures.
+Sense is currently an open-source developer preview. The packages are not yet
+published on PyPI, so install them from this repository. The public API is
+usable, but remains pre-1.0 while adapter and ecosystem integration matures.
 
 ## What Sense provides
 
@@ -53,32 +55,17 @@ The public API is usable, but pre-1.0 while adapter and ecosystem integration ma
 
 Sense is **not** a robot controller, planner, safety-certification system, world model, fleet manager, machine identity system, or replacement for ROS 2 or peaqOS.
 
-## Install
-
-Core:
-
-```bash
-pip install sense-ai
-```
-
-From this repository:
+## Install from source
 
 ```bash
 git clone https://github.com/OntosWorld/Sense.git
 cd Sense
+python -m venv .venv
+source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-Optional adapters:
-
-```bash
-pip install sense-peaq
-pip install sense-ros2
-pip install sense-mqtt
-pip install sense-http
-```
-
-Repository development installs:
+Install the optional adapters you need from the same checkout:
 
 ```bash
 pip install -e packages/Sense-peaq
@@ -88,6 +75,9 @@ pip install -e packages/Sense-http
 ```
 
 Python 3.10+ is supported.
+
+PyPI installation commands will be added after the first public package
+release.
 
 ## Fast peaq verification
 
@@ -129,12 +119,16 @@ Sense does **not** accept a private key as a CLI argument and does not manage
 wallet custody. The user configures their wallet through the official peaqOS
 SDK; Sense receives the configured client.
 
+When Agung is selected, Sense supplies missing public peaqOS contract addresses
+from peaq's official deployment record and verifies chain ID `9990`. Explicit
+environment values are preserved; wallet keys are never defaulted.
+
 For a completely fresh local test environment, including a throwaway wallet,
 dependency setup, balance check, machine ID prompt, wallet-free tests, and the
 same live verification command:
 
 ```bash
-git clone --branch fix/sdk-alignment-peaq --single-branch https://github.com/OntosWorld/Sense.git \
+git clone https://github.com/OntosWorld/Sense.git \
   && cd Sense \
   && bash scripts/peaq-live-test.sh
 ```

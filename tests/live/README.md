@@ -62,5 +62,9 @@ pip install python-dotenv
 pytest tests/live/test_peaq_activity_event.py -v -s
 ```
 
+When Agung is selected by RPC URL or `TOKENOMICS_DEPLOYMENT_ID`, Sense fills
+missing public peaqOS contract addresses from peaq's official deployment record.
+Explicit values are preserved, and the wallet private key is never defaulted.
+
 This is a real transaction. Use a funded test/dev environment unless you
 intentionally want to write to another network.

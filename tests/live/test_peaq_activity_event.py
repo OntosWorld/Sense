@@ -20,9 +20,10 @@ def test_live_peaq_activity_event() -> None:
     from dotenv import load_dotenv
     from peaq_os_sdk import PeaqosClient
     from sense_ai import ContextMachine, capability, gte
-    from sense_peaq import PeaqEventPublisher
+    from sense_peaq import PeaqEventPublisher, apply_official_network_defaults
 
     load_dotenv()
+    apply_official_network_defaults()
 
     raw_machine_id = os.getenv("SENSE_PEAQ_MACHINE_ID")
     if not raw_machine_id:

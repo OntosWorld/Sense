@@ -1,4 +1,8 @@
-"""MQTT adapter contract using a fake paho client."""
+"""MQTT adapter contract using a fake paho client.
+
+The module name is adapter-specific so repository-wide pytest collection does
+not collide with the HTTP adapter contract.
+"""
 
 from __future__ import annotations
 

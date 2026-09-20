@@ -13,7 +13,7 @@ sense-peaq verify-live --machine-id 42
 For a completely fresh local peaq test environment:
 
 ```bash
-git clone --branch fix/sdk-alignment-peaq --single-branch https://github.com/OntosWorld/Sense.git \
+git clone https://github.com/OntosWorld/Sense.git \
   && cd Sense \
   && bash scripts/peaq-live-test.sh
 ```

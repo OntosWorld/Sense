@@ -72,6 +72,23 @@ pytest packages/Sense-http/tests -v
 python -m build
 ```
 
+Run every local test suite together (the ROS 2 runtime and live peaq tests skip
+unless their external prerequisites are available):
+
+```bash
+pytest tests/ packages/Sense-ros2/tests/ packages/Sense-mqtt/tests/ packages/Sense-http/tests/ -v
+```
+
+Run the real ROS 2 Jazzy DDS test without installing ROS on the host:
+
+```bash
+bash scripts/test-ros2-runtime.sh
+```
+
+The helper uses the official `ros:jazzy-ros-base` Docker image, publishes a
+real `std_msgs/Float32` message over DDS, and verifies that Sense receives,
+normalizes, and stores it.
+
 Live external tests are separate and opt-in.
 
 ## Test layers

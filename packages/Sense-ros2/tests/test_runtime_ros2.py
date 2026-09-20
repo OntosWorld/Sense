@@ -16,7 +16,9 @@ from sense_ros2 import Ros2Client, Ros2SenseBridge
 
 
 def test_ros2_dds_message_reaches_sense() -> None:
-    from std_msgs.msg import Float32
+    pytest.importorskip("rclpy", reason="requires a sourced ROS 2 environment")
+    std_msgs = pytest.importorskip("std_msgs.msg", reason="requires ROS 2 std_msgs")
+    Float32 = std_msgs.Float32
 
     machine = ContextMachine(machine_ref="ros-runtime-test")
     machine.define_observation(

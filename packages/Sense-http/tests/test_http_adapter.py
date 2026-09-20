@@ -1,4 +1,8 @@
-"""HTTP polling adapter contract using a fake client."""
+"""HTTP polling adapter contract using a fake client.
+
+The module name is adapter-specific so repository-wide pytest collection does
+not collide with the MQTT adapter contract.
+"""
 
 from __future__ import annotations
 

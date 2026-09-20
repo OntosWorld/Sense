@@ -15,7 +15,7 @@ pip install -e ".[dev]"
 If your goal is to verify Sense against peaq from a fresh machine, use:
 
 ```bash
-git clone --branch fix/sdk-alignment-peaq --single-branch https://github.com/OntosWorld/Sense.git \
+git clone https://github.com/OntosWorld/Sense.git \
   && cd Sense \
   && bash scripts/peaq-live-test.sh
 ```
@@ -25,15 +25,24 @@ creates a throwaway test wallet, protects `.env`, shows the wallet address to
 fund, checks the balance, asks for the machine ID, runs wallet-free peaq checks,
 and then executes the live verification.
 
+To test a non-default branch, set `SENSE_BRANCH` when invoking the helper.
+
 If you already have your own peaq wallet/client configured, you only need:
 
 ```bash
-pip install sense-peaq
+pip install -e packages/Sense-peaq
 sense-peaq verify-live --machine-id 42
 ```
 
+Sense packages are not yet published on PyPI. All commands in this guide use a
+source checkout.
+
 Sense never takes the private key as a command-line argument. Wallet
 configuration remains with the official peaqOS SDK.
+
+For Agung, Sense fills missing public contract-address configuration from
+peaq's official deployment record and verifies chain ID `9990` before a live
+submission. Explicit environment values are never overwritten.
 
 ## 1. Define canonical telemetry and raw mappings
 

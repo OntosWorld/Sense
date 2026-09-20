@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_URL="https://github.com/OntosWorld/Sense.git"
-BRANCH="fix/sdk-alignment-peaq"
+BRANCH="${SENSE_BRANCH:-}"
 TARGET_DIR="${SENSE_DIR:-Sense}"
 RPC_URL="${PEAQOS_RPC_URL:-https://peaq-agung.api.onfinality.io/public}"
 DEPLOYMENT_ID="${TOKENOMICS_DEPLOYMENT_ID:-agung-2026-08-28}"
@@ -52,7 +52,11 @@ if git rev-parse --show-toplevel >/dev/null 2>&1; then
 elif [ -d "$TARGET_DIR/.git" ]; then
   cd "$TARGET_DIR"
 else
-  git clone --branch "$BRANCH" --single-branch "$REPO_URL" "$TARGET_DIR"
+  if [ -n "$BRANCH" ]; then
+    git clone --branch "$BRANCH" --single-branch "$REPO_URL" "$TARGET_DIR"
+  else
+    git clone "$REPO_URL" "$TARGET_DIR"
+  fi
   cd "$TARGET_DIR"
 fi
 
@@ -60,12 +64,16 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   die "Sense checkout has uncommitted changes. Commit/stash them first."
 fi
 
-git fetch origin "$BRANCH"
-git checkout "$BRANCH"
-git pull --ff-only origin "$BRANCH"
-
 CURRENT_BRANCH="$(git branch --show-current)"
-[ "$CURRENT_BRANCH" = "$BRANCH" ] || die "Expected branch $BRANCH, got $CURRENT_BRANCH."
+[ -n "$CURRENT_BRANCH" ] || die "The checkout is detached; select a branch first."
+
+if [ -n "$BRANCH" ]; then
+  git fetch origin "$BRANCH"
+  git checkout "$BRANCH"
+  CURRENT_BRANCH="$BRANCH"
+fi
+
+git pull --ff-only origin "$CURRENT_BRANCH"
 
 say "2/7  Creating Python environment"
 
@@ -127,6 +135,32 @@ values = {
     "PEAQOS_RPC_URL": os.environ["PEAQOS_RPC_URL"],
     "PEAQOS_PRIVATE_KEY": private_key,
     "TOKENOMICS_DEPLOYMENT_ID": os.environ["TOKENOMICS_DEPLOYMENT_ID"],
+    # Verified public Agung deployment metadata. These are contract addresses,
+    # not credentials. Explicit existing values remain authoritative.
+    "IDENTITY_REGISTRY_ADDRESS": existing.get(
+        "IDENTITY_REGISTRY_ADDRESS",
+        "0x9E9463a65c7B74623b3b6Cdc39F71be7274e5971",
+    ),
+    "IDENTITY_STAKING_ADDRESS": existing.get(
+        "IDENTITY_STAKING_ADDRESS",
+        "0x55f336714aDb0749DbFE33b057a1702405564E3d",
+    ),
+    "EVENT_REGISTRY_ADDRESS": existing.get(
+        "EVENT_REGISTRY_ADDRESS",
+        "0x98De5e22c46e17A56235C3589586375B09F7c53D",
+    ),
+    "MACHINE_NFT_ADDRESS": existing.get(
+        "MACHINE_NFT_ADDRESS",
+        "0xB41C2A4f1c19b6B06beaAce0F5CD8439e77C4b1c",
+    ),
+    "DID_REGISTRY_ADDRESS": existing.get(
+        "DID_REGISTRY_ADDRESS",
+        "0x0000000000000000000000000000000000000800",
+    ),
+    "BATCH_PRECOMPILE_ADDRESS": existing.get(
+        "BATCH_PRECOMPILE_ADDRESS",
+        "0x0000000000000000000000000000000000000805",
+    ),
     "SENSE_RUN_LIVE_PEAQ": "1",
     "SENSE_PEAQ_MACHINE_ID": machine_id,
 }

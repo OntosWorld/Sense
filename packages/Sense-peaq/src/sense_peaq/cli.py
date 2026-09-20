@@ -9,6 +9,7 @@ from collections.abc import Sequence
 
 from sense_ai import ContextMachine, capability, gte
 
+from .network import apply_official_network_defaults
 from .publisher import PeaqEventPublisher
 
 
@@ -39,6 +40,8 @@ def _verify_live(args: argparse.Namespace) -> int:
 
     load_dotenv()
 
+    network_profile = apply_official_network_defaults()
+
     raw_machine_id = args.machine_id or os.getenv("SENSE_PEAQ_MACHINE_ID")
     if not raw_machine_id:
         print(
@@ -64,6 +67,19 @@ def _verify_live(args: argparse.Namespace) -> int:
         print(f"ERROR: peaq client configuration failed: {exc}", file=sys.stderr)
         return 2
 
+    if network_profile is not None:
+        try:
+            actual_chain_id = int(client.w3.eth.chain_id)
+        except AttributeError:
+            actual_chain_id = network_profile.chain_id
+        if actual_chain_id != network_profile.chain_id:
+            print(
+                f"ERROR: expected {network_profile.name} chain ID "
+                f"{network_profile.chain_id}, got {actual_chain_id}.",
+                file=sys.stderr,
+            )
+            return 2
+
     wallet_address = getattr(client, "address", None)
     rpc_url = os.getenv("PEAQOS_RPC_URL", "(configured by peaq client)")
     deployment_id = os.getenv(
@@ -75,6 +91,11 @@ def _verify_live(args: argparse.Namespace) -> int:
     print(f"machine ID: {machine_id}")
     print(f"RPC: {rpc_url}")
     print(f"deployment: {deployment_id}")
+    if network_profile is not None:
+        print(
+            f"network profile: {network_profile.name} "
+            f"(chain ID {network_profile.chain_id})"
+        )
 
     try:
         machine, transition = _build_live_transition(machine_id)

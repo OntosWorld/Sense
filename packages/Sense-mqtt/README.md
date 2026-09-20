@@ -5,6 +5,15 @@ MQTT transport adapter for Sense.
 It subscribes to JSON telemetry and runs every payload through the core Sense
 normalization and validation pipeline before storing observations.
 
+## Install from source
+
+The Sense packages are not yet published on PyPI. From the repository root:
+
+```bash
+pip install -e .
+pip install -e packages/Sense-mqtt
+```
+
 ```python
 from sense_mqtt import MqttSenseAdapter
 

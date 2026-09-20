@@ -20,7 +20,9 @@ sense-mqtt
 sense-http
 ```
 
-For the 0.3 release line, all first-party packages use version `0.3.x`.
+For the planned 0.3 release line, all first-party packages use version `0.3.x`.
+Until that release is published on PyPI, install all packages from the source
+checkout as documented in the Quickstart.
 
 ## Context schema
 

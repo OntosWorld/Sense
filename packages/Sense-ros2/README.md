@@ -13,14 +13,12 @@ available.
 Then:
 
 ```bash
-pip install sense-ros2
-```
-
-From this repository:
-
-```bash
+pip install -e .
 pip install -e packages/Sense-ros2
 ```
+
+The Sense packages are not yet published on PyPI; these commands must be run
+from a source checkout.
 
 The package includes PyYAML for declarative mapping files. It intentionally does
 not install `rclpy` from PyPI.
@@ -118,12 +116,23 @@ External peaq publication should remain explicit application behavior.
 
 ## Tests
 
-The adapter contract test uses a fake ROS message/client and does not require a
-live ROS graph:
+The fast adapter contract test uses a fake ROS message/client and does not
+require a live ROS graph:
 
 ```bash
-pytest packages/Sense-ros2/tests -v
+pytest packages/Sense-ros2/tests/test_mapping.py -v
 ```
+
+Developers with Docker can run the real DDS integration test without installing
+ROS 2 on the host:
+
+```bash
+bash scripts/test-ros2-runtime.sh
+```
+
+The helper starts the official `ros:jazzy-ros-base` image, publishes a real
+`std_msgs/Float32` message, spins the subscriber, and verifies the normalized
+observation stored by Sense.
 
 A real robot/ROS deployment should additionally verify message types, QoS, frame
 semantics, and clock synchronization.

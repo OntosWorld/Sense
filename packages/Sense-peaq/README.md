@@ -10,13 +10,10 @@ It does not reimplement peaq identity, Events, signing, or market schemas.
 
 ## Install
 
-```bash
-pip install sense-peaq
-```
-
-From this repository:
+The Sense packages are not yet published on PyPI. From the repository root:
 
 ```bash
+pip install -e .
 pip install -e packages/Sense-peaq
 ```
 
@@ -47,6 +44,11 @@ The command:
 The private key is never accepted as a Sense CLI argument and is never printed by
 Sense. Wallet configuration remains owned by the official peaqOS SDK.
 
+For Agung, Sense fills missing public contract addresses from peaq's official
+[`peaqos.json`](https://github.com/peaqnetwork/peaq-evm-smart-contracts/blob/dev/addresses/peaqos.json)
+deployment record. Explicit environment values are never overwritten. Secrets
+such as `PEAQOS_PRIVATE_KEY` are never defaulted.
+
 Pass a machine ID directly when desired:
 
 ```bash
@@ -63,7 +65,7 @@ From a fresh checkout, the repository helper automates setup, local wallet
 creation, funding verification, wallet-free checks, and the same live command:
 
 ```bash
-git clone --branch fix/sdk-alignment-peaq --single-branch https://github.com/OntosWorld/Sense.git \
+git clone https://github.com/OntosWorld/Sense.git \
   && cd Sense \
   && bash scripts/peaq-live-test.sh
 ```
@@ -72,8 +74,9 @@ git clone --branch fix/sdk-alignment-peaq --single-branch https://github.com/Ont
 
 ```python
 from peaq_os_sdk import PeaqosClient
-from sense_peaq import PeaqEventPublisher
+from sense_peaq import PeaqEventPublisher, apply_official_network_defaults
 
+apply_official_network_defaults()
 client = PeaqosClient.from_env()
 publisher = PeaqEventPublisher(client, machine_id=42)
 
@@ -189,6 +192,27 @@ This output is application/agent context, not an undocumented peaq schema.
 Use the official peaqOS environment configuration:
 
 https://docs.peaq.xyz/peaqos/install
+
+The built-in Agung profile supplies these public values when the configured RPC
+URL contains `agung`, or when `TOKENOMICS_DEPLOYMENT_ID=agung-2026-08-28`:
+
+```text
+IDENTITY_REGISTRY_ADDRESS=0x9E9463a65c7B74623b3b6Cdc39F71be7274e5971
+IDENTITY_STAKING_ADDRESS=0x55f336714aDb0749DbFE33b057a1702405564E3d
+EVENT_REGISTRY_ADDRESS=0x98De5e22c46e17A56235C3589586375B09F7c53D
+MACHINE_NFT_ADDRESS=0xB41C2A4f1c19b6B06beaAce0F5CD8439e77C4b1c
+DID_REGISTRY_ADDRESS=0x0000000000000000000000000000000000000800
+BATCH_PRECOMPILE_ADDRESS=0x0000000000000000000000000000000000000805
+```
+
+The live CLI verifies that the connected chain ID is `9990` before it asks for
+transaction confirmation. Other networks receive no inferred defaults.
+
+The Tokenomics EventRegistry is resolved from the machine-data contracts
+registered by the SDK-approved `agung-2026-08-28` InfoDesk. This intentionally
+differs from the legacy EventRegistry still present in `peaqos.json`. Sense also
+clamps event timestamps to the latest EVM block, preventing small workstation /
+validator clock differences from causing `FutureTimestamp` reverts.
 
 Machine Markets orchestration currently uses the official orchestration client
 surface documented by peaq:
